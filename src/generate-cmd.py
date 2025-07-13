@@ -74,17 +74,17 @@ def extract_python_script_path(cmd_file_path):
                 print(f"Line {len(lines)-len(last_lines)+i}: {line.rstrip()}")
             print(f"Raw last line (hex): {last_line.encode('utf-8').hex()}")
             sys.exit(1)
-        
-        # Extract the path by removing 'python ' (7 chars) and ' %*' (3 chars)
-        path_with_quotes = last_line[7:-3]
-        # print(f"Extracted path with quotes: '{path_with_quotes}'")
-        
-        # Remove quotes if present
+        # Extract the part after the first space until before ' %*'
+        parts = last_line.split(' ', 1)
+        if len(parts) != 2:
+            print("Error parsing the last line of the .cmd file.")
+            sys.exit(1)
+        cmd_part, path_part = parts
+        path_with_quotes = path_part[:-3]  # remove ' %*'
         if path_with_quotes.startswith('"') and path_with_quotes.endswith('"'):
             script_path = path_with_quotes[1:-1]
         else:
             script_path = path_with_quotes
-        
         print(f"Extracted path: '{script_path}'")
         return script_path
     except IOError as e:
@@ -92,8 +92,28 @@ def extract_python_script_path(cmd_file_path):
         sys.exit(1)
 
 
+def get_python_interpreter_for_conda_env(env_name):
+    """Return the full path to the Python interpreter inside the given conda environment."""
+    try:
+        result = subprocess.run(
+            f'conda run -n "{env_name}" python -c "import sys; print(sys.executable)"',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=True,
+            check=True
+        )
+        python_path = result.stdout.strip()
+        if not python_path or not os.path.isfile(python_path):
+            print(f"Error: Could not find python in conda environment '{env_name}'. Output: {python_path}")
+            sys.exit(1)
+        return python_path
+    except subprocess.CalledProcessError as e:
+        print(f"Error running conda to get python path: {e.stderr.strip()}")
+        sys.exit(1)
+
+
 def main():
-    # Set up argument parser
     parser = argparse.ArgumentParser(
         description="Generate or update a Windows .cmd wrapper for a Python script, including its help text as comments."
     )
@@ -105,6 +125,10 @@ def main():
         help="Path to an existing .cmd file to update with new help text. If not provided, a file dialog will open."
     )
     parser.add_argument(
+        "-n", "--env-name",
+        help="Name of the conda environment whose Python interpreter should be used"
+    )
+    parser.add_argument(
         "script_path",
         nargs="?",
         help="Path to the Python script to wrap. Only used if --update is not specified. If not provided, a file dialog will open."
@@ -114,48 +138,42 @@ def main():
         nargs="?",
         help="Directory where the .cmd file will be saved. Only used if --update is not specified. If not provided, a directory dialog will open."
     )
-
-    # Parse arguments
     args = parser.parse_args()
+
+    # Determine the python interpreter
+    if args.env_name:
+        python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
+    else:
+        python_interpreter = "python"
 
     # Handle update mode
     if args.update is not False:
-        # If cmd_file is provided via --update, use it; otherwise, open a dialog
         cmd_file = args.update if isinstance(args.update, str) else select_cmd_file()
         if not cmd_file or not os.path.isfile(cmd_file) or not cmd_file.lower().endswith('.cmd'):
             print("Error: No valid .cmd file selected.")
             sys.exit(1)
-        
-        # Extract the Python script path from the .cmd file
         script_path = extract_python_script_path(cmd_file)
         if not script_path or not os.path.isfile(script_path):
             print(f"Error: Invalid or missing Python script referenced in .cmd file: {script_path}")
             sys.exit(1)
-        
-        # Output directory is the same as the .cmd file's directory
         output_dir = os.path.dirname(cmd_file)
-        output_path = cmd_file  # Overwrite the existing .cmd file
+        output_path = cmd_file
     else:
-        # Original mode: request missing paths through dialogs
         script_path = args.script_path if args.script_path else select_python_script()
         output_dir = args.output_dir if args.output_dir else select_output_directory()
-
-        # Validate paths
         if not script_path or not os.path.isfile(script_path):
             print("Error: No valid Python script selected.")
             sys.exit(1)
         if not output_dir or not os.path.isdir(output_dir):
             print("Error: No valid output directory selected.")
             sys.exit(1)
-
-        # Generate output filename
         base_name = os.path.splitext(os.path.basename(script_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.cmd")
 
-    # Capture help text
+    # Capture help text using the chosen interpreter
     try:
         result = subprocess.run(
-            [sys.executable, script_path, "--help"],
+            [python_interpreter, script_path, "--help"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True
@@ -165,22 +183,20 @@ def main():
         print(f"Error capturing help text for {script_path}: {e}")
         sys.exit(1)
 
-    # Process help text into batch comments
-    help_lines = help_output.splitlines()  # Entfernt alle Zeilenenden
+    help_lines = help_output.splitlines()
     processed_help = [":: " + line if line.strip() else "::" for line in help_lines]
 
-    # Create batch file content
     content = [
         f":: wrapper for {os.path.basename(script_path)}",
         *processed_help,
         "@echo off",
-        f'python "{os.path.abspath(script_path)}" %*'
+        f'"{python_interpreter}" "{os.path.abspath(script_path)}" %*'
     ]
 
-    # Write to file with Windows line endings
+    # Write with explicit Windows line endings
     try:
-        with open(output_path, "w", newline="\r\n") as f:
-            f.write("\n".join(content)) # Use \n to join lines, will be converted to \r\n on write
+        with open(output_path, "w", newline="") as f:
+            f.write("\r\n".join(content))
         print(f"Successfully created/updated: {output_path}")
     except IOError as e:
         print(f"Error writing file {output_path}: {e}")
