@@ -2,6 +2,11 @@
 
 A compact set of Python CLI tools to keep my dev workflow flowing smoothly, built for automation and LLM collaboration.
 
+Super easy and simple system to manage my python scripts scattered in different repositories and locations on my disks: Always have easy to update wrapper scripts in one location in my path that allow me to execute the script
+* from their respective current location
+* with the proper python interpreter of their conda environment
+* automagically have an easy to use info system with all the help texts for all script files
+
 ## Tools
 
 ### `generate-cmd.py`
