@@ -129,13 +129,20 @@ def main():
         if not cmd_file or not os.path.isfile(cmd_file) or not cmd_file.lower().endswith('.cmd'):
             print("Error: No valid .cmd file selected.")
             sys.exit(1)
-        python_interpreter, script_path = extract_python_and_script_paths(cmd_file)
+        old_python_interpreter, script_path = extract_python_and_script_paths(cmd_file)
         if not script_path or not os.path.isfile(script_path):
             print(f"Error: Invalid or missing Python script referenced in .cmd file: {script_path}")
             sys.exit(1)
         output_dir = os.path.dirname(cmd_file)
         output_path = cmd_file
+
+        # Prüfen ob -n ENVNAME angegeben wurde
+        if args.env_name:
+            python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
+        else:
+            python_interpreter = old_python_interpreter
     else:
+        # Neu-Generieren Modus
         if args.env_name:
             python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
         else:
@@ -150,6 +157,7 @@ def main():
             sys.exit(1)
         base_name = os.path.splitext(os.path.basename(script_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.cmd")
+
     # Capture help text using the chosen interpreter
     try:
         result = subprocess.run(
