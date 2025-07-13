@@ -22,8 +22,11 @@ def select_cmd_file():
     """Open a file dialog to select a .cmd file."""
     root = tk.Tk()
     root.withdraw()
+    # Start in script directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = filedialog.askopenfilename(
         title="Select .cmd File to Update",
+        initialdir=script_dir,
         filetypes=[("Command Files", "*.cmd"), ("All Files", "*.*")]
     )
     root.destroy()
