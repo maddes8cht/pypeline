@@ -4,15 +4,15 @@ import sys
 import argparse
 from iterfzf import iterfzf
 
-# Directory containing .cmd files
-CMDDIR = r"C:\PAP\cmd"
+# Default directory containing .cmd files (script's directory)
+CMDDIR = os.path.dirname(os.path.abspath(__file__))
 
-def get_cmd_files():
-    """Return a list of .cmd files in CMDDIR without the .cmd extension."""
-    if not os.path.exists(CMDDIR):
-        print(f"Error: Directory {CMDDIR} does not exist!")
+def get_cmd_files(cmddir):
+    """Return a list of .cmd files in cmddir without the .cmd extension."""
+    if not os.path.exists(cmddir):
+        print(f"Error: Directory {cmddir} does not exist!")
         return []
-    return [os.path.splitext(f)[0] for f in os.listdir(CMDDIR) if f.endswith(".cmd")]
+    return [os.path.splitext(f)[0] for f in os.listdir(cmddir) if f.endswith(".cmd")]
 
 def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
     """Run FZF with preview and return the selected command."""
@@ -36,7 +36,7 @@ def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
         print(f"Error running FZF: {e}")
         return None
 
-def show_preview(selected_cmd):
+def show_preview(selected_cmd, cmddir):
     """Run cmdlist /c to show the preview of the selected command."""
     if selected_cmd:
         try:
@@ -54,7 +54,7 @@ def show_preview(selected_cmd):
         except subprocess.CalledProcessError as e:
             print(f"Error running preview: {e}", file=sys.stderr)
 
-def get_user_edited_command(selected_cmd, keep_preview=False):
+def get_user_edited_command(selected_cmd, keep_preview=False, cmddir=CMDDIR):
     """Prompt the user to add arguments and confirm execution in the terminal."""
     if selected_cmd:
         try:
@@ -62,7 +62,7 @@ def get_user_edited_command(selected_cmd, keep_preview=False):
             print(f"Selected command: {selected_cmd}")
             # Show the preview if --keep is specified
             if keep_preview:
-                show_preview(selected_cmd)
+                show_preview(selected_cmd, cmddir)
                 print("  -- Press [Enter] to continue or [Ctrl+C] to cancel --")
             print("Add optional arguments:")
             # Display the base command (non-editable) with a space for arguments
@@ -105,6 +105,11 @@ def main():
         action="store_true",
         help="Show the cmdlist preview of the selected command before the argument prompt."
     )
+    parser.add_argument(
+        "--cmddir",
+        default=CMDDIR,
+        help=f"Directory containing .cmd files. Default is the script's directory: {CMDDIR}."
+    )
 
     args = parser.parse_args()
 
@@ -114,9 +119,9 @@ def main():
         sys.exit(1)
 
     # Get list of .cmd files
-    cmd_files = get_cmd_files()
+    cmd_files = get_cmd_files(args.cmddir)
     if not cmd_files:
-        print("No .cmd files found!")
+        print(f"No .cmd files found in {args.cmddir}!")
         sys.exit(1)
 
     # Run FZF to select a command
@@ -126,7 +131,7 @@ def main():
         sys.exit(1)
 
     # Prompt user to add arguments and confirm execution
-    edited_cmd = get_user_edited_command(selected, keep_preview=args.keep)
+    edited_cmd = get_user_edited_command(selected, keep_preview=args.keep, cmddir=args.cmddir)
     if edited_cmd:
         execute_command(edited_cmd)
     else:
