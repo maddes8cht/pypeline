@@ -46,51 +46,34 @@ def select_output_directory():
     return dir_path if dir_path else None
 
 
-def extract_python_script_path(cmd_file_path):
-    """Extract the Python script path from the last line of the .cmd file."""
+def extract_python_and_script_paths(cmd_file_path):
+    """
+    Extract the Python interpreter and script path from the last line of the .cmd file.
+    """
     try:
         with open(cmd_file_path, "r", encoding="utf-8-sig") as f:
             lines = f.readlines()
         if not lines:
             print("Error: .cmd file is empty.")
             sys.exit(1)
-        
-        # Get first and last two lines for error reporting
-        first_lines = lines[:2] if len(lines) >= 2 else lines
-        last_lines = lines[-2:] if len(lines) >= 2 else lines
         last_line = lines[-1].strip()
-        
-        # ebug: Show the exact input line
-        print(f"Attempting to extract path from last line: '{last_line}'")
-        
-        # Check if the line matches the expected format: python "<path>" %*
-        if not last_line.lower().startswith('python ') or not last_line.endswith(' %*'):
-            print(f"Error: Last line does not match expected format in .cmd file: {cmd_file_path}")
-            print("First two lines of the .cmd file:")
-            for i, line in enumerate(first_lines, 1):
-                print(f"Line {i}: {line.rstrip()}")
-            print("Last two lines of the .cmd file:")
-            for i, line in enumerate(last_lines, 1):
-                print(f"Line {len(lines)-len(last_lines)+i}: {line.rstrip()}")
-            print(f"Raw last line (hex): {last_line.encode('utf-8').hex()}")
+        print(f"Parsing last line: '{last_line}'")
+        # Expected format: "<python>" "<script>" %*
+        if not last_line.endswith(' %*'):
+            print("Error: Last line does not end with ' %*'.")
             sys.exit(1)
-        # Extract the part after the first space until before ' %*'
-        parts = last_line.split(' ', 1)
+        parts = last_line[:-3].strip().split('" "')
         if len(parts) != 2:
-            print("Error parsing the last line of the .cmd file.")
+            print("Error: Could not parse last line into two quoted paths.")
             sys.exit(1)
-        cmd_part, path_part = parts
-        path_with_quotes = path_part[:-3]  # remove ' %*'
-        if path_with_quotes.startswith('"') and path_with_quotes.endswith('"'):
-            script_path = path_with_quotes[1:-1]
-        else:
-            script_path = path_with_quotes
-        print(f"Extracted path: '{script_path}'")
-        return script_path
+        python_path = parts[0].strip('"')
+        script_path = parts[1].strip('"')
+        print(f"Found python interpreter: {python_path}")
+        print(f"Found script path: {script_path}")
+        return python_path, script_path
     except IOError as e:
         print(f"Error reading .cmd file {cmd_file_path}: {e}")
         sys.exit(1)
-
 
 def get_python_interpreter_for_conda_env(env_name):
     """Return the full path to the Python interpreter inside the given conda environment."""
@@ -140,25 +123,23 @@ def main():
     )
     args = parser.parse_args()
 
-    # Determine the python interpreter
-    if args.env_name:
-        python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
-    else:
-        python_interpreter = "python"
-
-    # Handle update mode
+    # Determine python interpreter
     if args.update is not False:
         cmd_file = args.update if isinstance(args.update, str) else select_cmd_file()
         if not cmd_file or not os.path.isfile(cmd_file) or not cmd_file.lower().endswith('.cmd'):
             print("Error: No valid .cmd file selected.")
             sys.exit(1)
-        script_path = extract_python_script_path(cmd_file)
+        python_interpreter, script_path = extract_python_and_script_paths(cmd_file)
         if not script_path or not os.path.isfile(script_path):
             print(f"Error: Invalid or missing Python script referenced in .cmd file: {script_path}")
             sys.exit(1)
         output_dir = os.path.dirname(cmd_file)
         output_path = cmd_file
     else:
+        if args.env_name:
+            python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
+        else:
+            python_interpreter = "python"
         script_path = args.script_path if args.script_path else select_python_script()
         output_dir = args.output_dir if args.output_dir else select_output_directory()
         if not script_path or not os.path.isfile(script_path):
@@ -169,7 +150,6 @@ def main():
             sys.exit(1)
         base_name = os.path.splitext(os.path.basename(script_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.cmd")
-
     # Capture help text using the chosen interpreter
     try:
         result = subprocess.run(
