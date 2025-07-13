@@ -1,11 +1,6 @@
 # Pypeline
 
-A compact set of Python CLI tools to keep my dev workflow flowing smoothly, built for automation and LLM collaboration.
-
-Super easy and simple system to manage my python scripts scattered in different repositories and locations on my disks: Always have easy to update wrapper scripts in one location in my path that allow me to execute the script
-* from their respective current location
-* with the proper python interpreter of their conda environment
-* automagically have an easy to use info system with all the help texts for all script files
+A compact set of Python CLI tools to keep my dev workflow flowing smoothly, built for automation and LLM collaboration. Think of it as the Python sibling to my [cpp-cli-toolbox](https://github.com/maddes8cht/cpp-cli-toolbox). Jump into the pypeline!
 
 ## Tools
 
@@ -21,17 +16,22 @@ Super easy and simple system to manage my python scripts scattered in different 
 
 **Solution**: `cmdfzf.cmd` is a Windows batch script that uses `fzf` to interactively list `.cmd` files in `C:\PAP\cmd`. It shows help text or script content in a preview window, making it faster to browse and run scripts than executing them directly. It’s like a supercharged help system powered by `fzf`’s fuzzy search.
 
-### `generate-issue-md.py`
+### `generate_issue_md.py`
 
 **Problem**: I manage projects with GitHub Issues, creating issue branches, solving them, and merging back. To keep LLMs updated on project status via RAG, I need a concise summary of issues.
 
-**Solution**: `generate-issue-md.py` pulls GitHub issues and generates a single Markdown file with summaries and details. It’s customizable (filter by state, add emojis) and creates LLM-friendly reports, streamlining project tracking.
+**Solution**: `generate_issue_md.py` pulls GitHub issues and generates a single Markdown file with summaries and details. It’s customizable (filter by state, add emojis) and creates LLM-friendly reports, streamlining project tracking.
+
+### `debug.py`
+
+**Problem**: During development, I need debug output for troubleshooting, but Python’s `logging` module feels overkill for simple scripts. I also want optional verbose output for users without complex setup.
+
+**Solution**: `debug.py` provides a lightweight `Debug` class with two instances: `debug` for development-only output (enabled manually in code) and `verbose` for user-controlled output (via `--verbose` flag). It’s simpler than `logging`, integrates easily with my scripts, and keeps my pypeline clean and focused.
 
 ## Setup
 
-- **recent Python version**: For `generate-cmd.py` and `generate-issue-md.py`.  
-Tested with python 3.12, 3.13. Should work with any current version greater as 3.9.
-- **Windows**: For `.cmd` files and `cmdfzf.cmd`. The pypeline is windows-centric,  things may not work on other OSes.
+- **Python 3.8+**: For `generate-cmd.py`, `generate_issue_md.py`, and `debug.py`.
+- **Windows**: For `.cmd` files and `cmdfzf.cmd`.
 - **Tools**: Install [GitHub CLI (`gh`)](https://cli.github.com/), [`fzf`](https://github.com/junegunn/fzf/releases), [`awk`](https://git-scm.com/downloads) (via Git Bash), and optionally [`bat`](https://github.com/sharkdp/bat/releases) for previews.
 - **Custom**: `cmdlist` for `cmdfzf.cmd` previews (replace with your tool if needed).
 - **Conda**: Optional for future `generate-cmd.py` support.
@@ -51,116 +51,33 @@ Tested with python 3.12, 3.13. Should work with any current version greater as 3
 - **cmdfzf.cmd**: `cmdfzf.cmd [query]`  
   Browse `.cmd` files with `fzf`. Use `[ctrl]-b` for script preview, `[ctrl]-c` for help text.
 
-- **generate-issue-md.py**: `python scripts/generate-issue-md.py --repo user/repo --filename issues.md`  
+- **generate_issue_md.py**: `python scripts/generate_issue_md.py --repo user/repo --filename issues.md`  
   Outputs Markdown with issue summaries. Use `--state all`, `--color`, or `--dry-run`.
 
-
-### Installation
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/maddes8cht/pypeline.git
-   cd pypeline
-   ```
-2. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   (Currently empty, but check `requirements.txt` for future updates.)
-3. Set up the central `.cmd` directory:
-   - Create a folder (e.g., `C:\PAP\cmd`).
-   - Add it to your system `PATH` (search "Edit environment variables" in Windows).
-4. Ensure `fzf`, `awk`, and `bat` (optional) are in your `PATH`.
-5. Configure the GitHub CLI:
-   ```bash
-   gh auth login
-   ```
-6. Place `cmdfzf.cmd` in `C:\PAP\cmd` or another `PATH` location.
-
-## Usage
-
-### 1. `generate-cmd.py`
-Wraps Python scripts into `.cmd` files with their `--help` output as comments, feeding into your system-wide script pipeline.
-
-**Run it**:
-```bash
-python scripts/generate-cmd.py path/to/your_script.py path/to/output_dir
-```
-- Skip arguments to use file dialogs.
-- Update an existing `.cmd`:
-  ```bash
-  python scripts/generate-cmd.py --update path/to/existing.cmd
+- **debug.py**: Import `debug` and `verbose` instances:  
+  ```python
+  from scripts.debug import debug, verbose
+  debug.enabled = True  # For dev-only output
+  verbose.enabled = args.verbose  # For user-controlled output
+  debug.print("Debugging info")
+  verbose.print("Verbose output")
   ```
 
-**Example**:
-```bash
-python scripts/generate-cmd.py my_script.py C:\PAP\cmd
-```
-Creates `C:\PAP\cmd\my_script.cmd`, callable with:
-```bash
-my_script --help
-```
-
-**Note**: Conda environment support is coming to keep your script pipeline flowing smoothly.
-
-### 2. `cmdfzf.cmd`
-Browse and run `.cmd` files in your central directory (e.g., `C:\PAP\cmd`) with `fzf` for an interactive help system.
-
-**Run it**:
-```bash
-cmdfzf.cmd [query]
-```
-- `[ctrl]-b`: Toggle between `bat` (script content) and `cmdlist` (help text) previews.
-- `[ctrl]-c`: Switch back to `cmdlist`.
-
-**Example**:
-```bash
-cmdfzf.cmd git
-```
-Searches for `.cmd` files with "git" in the name and runs the selected one.
-
-**Note**: The `C:\PAP\cmd` directory is hardcoded for now—configurable version coming soon.
-
-### 3. `generate-issue-md.py`
-Pipes GitHub issues into Markdown files with summaries and details, perfect for LLM-friendly project updates.
-
-**Run it**:
-```bash
-python scripts/generate-issue-md.py --repo user/repo --filename ISSUES.md --state open
-```
-- `--repo`: GitHub repo (e.g., `user/repo`). Defaults to current repo.
-- `--filename`: Output file (default: `ISSUES.md`).
-- `--state`: Issues to include (`open`, `closed`, `all`; default: `open`).
-- `--color`: Add emoji icons.
-- `--top-link-style`: Back-to-top links (`icon`, `text`, `both`, `none`; default: `both`).
-- `--verbose`: Show detailed output.
-- `--dry-run`: Preview without saving.
-
-**Example**:
-```bash
-python scripts/generate-issue-md.py --repo octocat/hello-world --filename issues.md --state all --color
-```
-Creates `issues.md` with all issues from `octocat/hello-world`.
-
-## Folder Structure
+## Structure
 ```
 pypeline/
 ├── scripts/
-│   ├── generate-cmd.py        # Generates .cmd wrappers
-│   ├── generate-issue-md.py   # Generates GitHub issue Markdown
-│   └── (future scripts)
+│   ├── generate-cmd.py
+│   ├── generate_issue_md.py
+│   ├── debug.py
 ├── tests/
-│   ├── test_generate_cmd.py   # Tests for generate-cmd.py
-│   ├── test_generate-issue-md.py # Tests for generate-issue-md.py
-├── cmdfzf.cmd                 # Interactive .cmd runner (place in C:\PAP\cmd or PATH)
-├── README.md                  # You're reading it!
-└── requirements.txt           # Python dependencies (if any)
+├── cmdfzf.cmd
+├── README.md
+└── requirements.txt
 ```
 
 ## Contributing
-Got ideas to keep the pypeline flowing? Open an issue or submit a pull request! I’m especially interested in:
-- Conda support for `generate-cmd.py`.
-- Configurable directories in `cmdfzf.cmd`.
-- New Python CLI tools to enhance the pipeline, especially for LLM workflows.
+Got ideas to enhance the pypeline? Open an issue or PR! I’m eyeing Conda support for `generate-cmd.py` and configurable dirs for `cmdfzf.cmd`.
 
 ## License
-MIT License. See the `LICENSE` file for details.
+MIT License. See `LICENSE`.
