@@ -1,6 +1,11 @@
 # Pypeline
 
-A compact set of Python CLI tools to keep my dev workflow flowing smoothly, built for automation and LLM collaboration. Think of it as the Python sibling to my [cpp-cli-toolbox](https://github.com/maddes8cht/cpp-cli-toolbox). Jump into the pypeline!
+A compact set of Python CLI tools to keep my dev workflow flowing smoothly, built for automation and LLM collaboration.
+
+Super easy and simple system to manage my python scripts scattered in different repositories and locations on my disks: Always have easy to update wrapper scripts in one location in my path that allow me to execute the script
+* from their respective current location
+* with the proper python interpreter of their conda environment
+* automagically have an easy to use info system with all the help texts for all script files
 
 ## Tools
 
@@ -16,11 +21,11 @@ A compact set of Python CLI tools to keep my dev workflow flowing smoothly, buil
 
 **Solution**: `cmdfzf.cmd` is a Windows batch script that uses `fzf` to interactively list `.cmd` files in `C:\PAP\cmd`. It shows help text or script content in a preview window, making it faster to browse and run scripts than executing them directly. It’s like a supercharged help system powered by `fzf`’s fuzzy search.
 
-### `generate_issue_md.py`
+### `generate-issue-md.py`
 
 **Problem**: I manage projects with GitHub Issues, creating issue branches, solving them, and merging back. To keep LLMs updated on project status via RAG, I need a concise summary of issues.
 
-**Solution**: `generate_issue_md.py` pulls GitHub issues and generates a single Markdown file with summaries and details. It’s customizable (filter by state, add emojis) and creates LLM-friendly reports, streamlining project tracking.
+**Solution**: `generate-issue-md.py` pulls GitHub issues and generates a single Markdown file with summaries and details. It’s customizable (filter by state, add emojis) and creates LLM-friendly reports, streamlining project tracking.
 
 ### `debug.py`
 
@@ -30,8 +35,9 @@ A compact set of Python CLI tools to keep my dev workflow flowing smoothly, buil
 
 ## Setup
 
-- **Python 3.8+**: For `generate-cmd.py`, `generate_issue_md.py`, and `debug.py`.
-- **Windows**: For `.cmd` files and `cmdfzf.cmd`.
+- **recent Python version**: For `generate-cmd.py` and `generate-issue-md.py`.  
+Tested with python 3.12, 3.13. Should work with any current version greater as 3.9.
+- **Windows**: For `.cmd` files and `cmdfzf.cmd`. The pypeline is windows-centric,  things may not work on other OSes.
 - **Tools**: Install [GitHub CLI (`gh`)](https://cli.github.com/), [`fzf`](https://github.com/junegunn/fzf/releases), [`awk`](https://git-scm.com/downloads) (via Git Bash), and optionally [`bat`](https://github.com/sharkdp/bat/releases) for previews.
 - **Custom**: `cmdlist` for `cmdfzf.cmd` previews (replace with your tool if needed).
 - **Conda**: Optional for future `generate-cmd.py` support.
@@ -42,6 +48,9 @@ A compact set of Python CLI tools to keep my dev workflow flowing smoothly, buil
 4. Run `gh auth login` for GitHub CLI.
 5. Place `cmdfzf.cmd` in `C:\PAP\cmd` or `PATH`.
 
+## Requirements
+The tools are meant to be lightweight and without much dependencys. From the python side, there are no requirements byond the standard libraries always included in python. Once this changes, there will be a `requuirements.txt` file.
+
 ## Usage
 
 - **generate-cmd.py**: `python scripts/generate-cmd.py path/to/script.py C:\PAP\cmd`  
@@ -51,8 +60,9 @@ A compact set of Python CLI tools to keep my dev workflow flowing smoothly, buil
 - **cmdfzf.cmd**: `cmdfzf.cmd [query]`  
   Browse `.cmd` files with `fzf`. Use `[ctrl]-b` for script preview, `[ctrl]-c` for help text.
 
-- **generate_issue_md.py**: `python scripts/generate_issue_md.py --repo user/repo --filename issues.md`  
+- **generate-issue-md.py**: `python scripts/generate-issue-md.py --repo user/repo --filename issues.md`  
   Outputs Markdown with issue summaries. Use `--state all`, `--color`, or `--dry-run`.
+
 
 - **debug.py**: Import `debug` and `verbose` instances:  
   ```python
@@ -66,18 +76,12 @@ A compact set of Python CLI tools to keep my dev workflow flowing smoothly, buil
 ## Structure
 ```
 pypeline/
-├── scripts/
+├── scr/
+│   ├── cmdfzf.cmd
 │   ├── generate-cmd.py
 │   ├── generate_issue_md.py
 │   ├── debug.py
 ├── tests/
-├── cmdfzf.cmd
 ├── README.md
 └── requirements.txt
 ```
-
-## Contributing
-Got ideas to enhance the pypeline? Open an issue or PR! I’m eyeing Conda support for `generate-cmd.py` and configurable dirs for `cmdfzf.cmd`.
-
-## License
-MIT License. See `LICENSE`.
