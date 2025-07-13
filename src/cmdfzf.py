@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import argparse
 from iterfzf import iterfzf
 
 # Directory containing .cmd files
@@ -13,7 +14,7 @@ def get_cmd_files():
         return []
     return [os.path.splitext(f)[0] for f in os.listdir(CMDDIR) if f.endswith(".cmd")]
 
-def run_fzf_with_preview(cmd_files, query=""):
+def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
     """Run FZF with preview and return the selected command."""
     try:
         selected = iterfzf(
@@ -25,19 +26,44 @@ def run_fzf_with_preview(cmd_files, query=""):
                 "ctrl-b": "change-preview(bat --style=plain --color=always --line-range=:50 {}.cmd)",
                 "ctrl-c": "change-preview(cmdlist /c {})"
             },
-            __extra__=["--preview-window=right:60%"]
+            __extra__=[f"--preview-window=right:{preview_percent}%"]
         )
         return selected
+    except KeyboardInterrupt:
+        # Handle [Esc] or other interruptions in FZF
+        return None
     except Exception as e:
         print(f"Error running FZF: {e}")
         return None
 
-def get_user_edited_command(selected_cmd):
-    """Prompt the user to add arguments to the selected command in the terminal."""
+def show_preview(selected_cmd):
+    """Run cmdlist /c to show the preview of the selected command."""
     if selected_cmd:
         try:
-            # Show the selected command and prompt for arguments
+            result = subprocess.run(
+                f"cmdlist /c {selected_cmd}",
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(f"Preview error: {result.stderr}", file=sys.stderr)
+        except subprocess.CalledProcessError as e:
+            print(f"Error running preview: {e}", file=sys.stderr)
+
+def get_user_edited_command(selected_cmd, keep_preview=False):
+    """Prompt the user to add arguments and confirm execution in the terminal."""
+    if selected_cmd:
+        try:
+            # Show the selected command
             print(f"Selected command: {selected_cmd}")
+            # Show the preview if --keep is specified
+            if keep_preview:
+                show_preview(selected_cmd)
+                print("  -- Press [Enter] to continue or [Ctrl+C] to cancel --")
             print("Add optional arguments:")
             # Display the base command (non-editable) with a space for arguments
             arguments = input(f"{selected_cmd} ") or ""
@@ -58,30 +84,54 @@ def execute_command(cmd):
             print(f"Error executing command: {e}")
 
 def main():
-    # Get query from command-line arguments (if provided)
-    query = sys.argv[1] if len(sys.argv) > 1 else ""
+    # Argument parser
+    parser = argparse.ArgumentParser(
+        description="FZF-based wrapper for selecting and running .cmd scripts with optional arguments."
+    )
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="",
+        help="Initial query to filter the command list in FZF."
+    )
+    parser.add_argument(
+        "--preview",
+        type=int,
+        default=60,
+        help="Set the preview window size as a percentage (1-100). Default is 60."
+    )
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Show the cmdlist preview of the selected command before the argument prompt."
+    )
+
+    args = parser.parse_args()
+
+    # Validate preview percentage
+    if not 1 <= args.preview <= 100:
+        print("Error: --preview must be between 1 and 100.")
+        sys.exit(1)
 
     # Get list of .cmd files
     cmd_files = get_cmd_files()
     if not cmd_files:
         print("No .cmd files found!")
-        return
+        sys.exit(1)
 
     # Run FZF to select a command
-    selected = run_fzf_with_preview(cmd_files, query)
+    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview)
     if not selected:
-        print("No command selected.")
-        return
+        print("Command selection cancelled.")
+        sys.exit(1)
 
-    # Debug: Print the selected command
-    print(f"Selected command: {selected}")
-
-    # Prompt user to add arguments in the terminal
-    edited_cmd = get_user_edited_command(selected)
+    # Prompt user to add arguments and confirm execution
+    edited_cmd = get_user_edited_command(selected, keep_preview=args.keep)
     if edited_cmd:
         execute_command(edited_cmd)
     else:
         print("Command execution cancelled.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
