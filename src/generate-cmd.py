@@ -97,6 +97,7 @@ def get_python_interpreter_for_conda_env(env_name):
 
 
 def main():
+    # Set up argument parser
     parser = argparse.ArgumentParser(
         description="Generate or update a Windows .cmd wrapper for a Python script, including its help text as comments."
     )
@@ -109,7 +110,8 @@ def main():
     )
     parser.add_argument(
         "-n", "--env-name",
-        help="Name of the conda environment whose Python interpreter should be used"
+        metavar="ENV_NAME",
+        help="Name of the Conda environment whose Python interpreter should be used."
     )
     parser.add_argument(
         "script_path",
@@ -121,44 +123,66 @@ def main():
         nargs="?",
         help="Directory where the .cmd file will be saved. Only used if --update is not specified. If not provided, a directory dialog will open."
     )
+
+    # Parse arguments
     args = parser.parse_args()
 
-    # Determine python interpreter
+    # Handle update mode
     if args.update is not False:
         cmd_file = args.update if isinstance(args.update, str) else select_cmd_file()
         if not cmd_file or not os.path.isfile(cmd_file) or not cmd_file.lower().endswith('.cmd'):
             print("Error: No valid .cmd file selected.")
             sys.exit(1)
+
+        # Extract the Python interpreter and the script from the existing .cmd file
         old_python_interpreter, script_path = extract_python_and_script_paths(cmd_file)
         if not script_path or not os.path.isfile(script_path):
             print(f"Error: Invalid or missing Python script referenced in .cmd file: {script_path}")
             sys.exit(1)
-        output_dir = os.path.dirname(cmd_file)
-        output_path = cmd_file
 
-        # Prüfen ob -n ENVNAME angegeben wurde
+        # If new Env specified, get new interpreter
         if args.env_name:
             python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
         else:
             python_interpreter = old_python_interpreter
+
+        output_path = cmd_file  # overwrites existing file
     else:
-        # Neu-Generieren Modus
-        if args.env_name:
-            python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
+        #  generate-new mode
+        # If only a positional argument is specified, check whether file or directory
+        if args.script_path and not args.output_dir:
+            if os.path.isdir(args.script_path):
+                output_dir = args.script_path
+                script_path = select_python_script()
+            elif os.path.isfile(args.script_path):
+                script_path = args.script_path
+                output_dir = select_output_directory()
+            else:
+                print(f"Error: Provided argument '{args.script_path}' is neither a valid file nor a directory.")
+                sys.exit(1)
         else:
-            python_interpreter = "python"
-        script_path = args.script_path if args.script_path else select_python_script()
-        output_dir = args.output_dir if args.output_dir else select_output_directory()
+            script_path = args.script_path if args.script_path else select_python_script()
+            output_dir = args.output_dir if args.output_dir else select_output_directory()
+
+        # Validation
         if not script_path or not os.path.isfile(script_path):
             print("Error: No valid Python script selected.")
             sys.exit(1)
         if not output_dir or not os.path.isdir(output_dir):
             print("Error: No valid output directory selected.")
             sys.exit(1)
+
+        # If -n is specified → get the interpreter, otherwise simply "python"
+        if args.env_name:
+            python_interpreter = get_python_interpreter_for_conda_env(args.env_name)
+        else:
+            python_interpreter = "python"
+
+        # Target path for the .cmd file
         base_name = os.path.splitext(os.path.basename(script_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.cmd")
 
-    # Capture help text using the chosen interpreter
+    # --help text extract with the selected interpreter
     try:
         result = subprocess.run(
             [python_interpreter, script_path, "--help"],
@@ -171,9 +195,11 @@ def main():
         print(f"Error capturing help text for {script_path}: {e}")
         sys.exit(1)
 
+    # Convert help text to batch comments
     help_lines = help_output.splitlines()
     processed_help = [":: " + line if line.strip() else "::" for line in help_lines]
 
+    # Contents of the .cmd file
     content = [
         f":: wrapper for {os.path.basename(script_path)}",
         *processed_help,
@@ -183,8 +209,8 @@ def main():
 
     # Write with explicit Windows line endings
     try:
-        with open(output_path, "w", newline="") as f:
-            f.write("\r\n".join(content))
+        with open(output_path, "w", newline="\r\n") as f:
+            f.write("\n".join(content))
         print(f"Successfully created/updated: {output_path}")
     except IOError as e:
         print(f"Error writing file {output_path}: {e}")
