@@ -33,12 +33,17 @@ def run_fzf_with_preview(cmd_files, query=""):
         return None
 
 def get_user_edited_command(selected_cmd):
-    """Prompt the user to edit the selected command in the terminal."""
+    """Prompt the user to add arguments to the selected command in the terminal."""
     if selected_cmd:
         try:
-            # Use input() to allow editing in the terminal
-            edited_cmd = input(f"Edit command to run [{selected_cmd}.cmd]: ") or f"{selected_cmd}.cmd"
-            return edited_cmd
+            # Show the selected command and prompt for arguments
+            print(f"Selected command: {selected_cmd}")
+            print("Add optional arguments:")
+            # Display the base command (non-editable) with a space for arguments
+            arguments = input(f"{selected_cmd} ") or ""
+            # Construct the full command: base command + .cmd + arguments
+            full_cmd = f"{selected_cmd}.cmd {arguments}".strip()
+            return full_cmd
         except KeyboardInterrupt:
             return None
     return None
@@ -71,11 +76,8 @@ def main():
     # Debug: Print the selected command
     print(f"Selected command: {selected}")
 
-    # No need to handle --expect=enter since we removed it
-    selected_cmd = selected
-
-    # Prompt user to edit the command in the terminal
-    edited_cmd = get_user_edited_command(selected_cmd)
+    # Prompt user to add arguments in the terminal
+    edited_cmd = get_user_edited_command(selected)
     if edited_cmd:
         execute_command(edited_cmd)
     else:
