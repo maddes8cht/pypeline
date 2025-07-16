@@ -14,17 +14,17 @@ def get_cmd_files(cmddir):
         return []
     return [os.path.splitext(f)[0] for f in os.listdir(cmddir) if f.endswith(".cmd")]
 
-def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
+def run_fzf_with_preview(cmd_files, query="", preview_percent=60, cmddir=CMDDIR):
     """Run FZF with preview and return the selected command."""
     try:
         selected = iterfzf(
             cmd_files,
             multi=False,
             query=query,
-            preview="cmdlist /c {}",
+            preview=f"python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {{}}",
             bind={
-                "ctrl-b": "change-preview(bat --style=plain --color=always --line-range=:50 {}.cmd)",
-                "ctrl-c": "change-preview(cmdlist /c {})"
+                "ctrl-b": f"change-preview(bat --style=plain --color=always --line-range=:50 {{}}.cmd)",
+                "ctrl-c": f"change-preview(python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {{}})"
             },
             __extra__=[f"--preview-window=right:{preview_percent}%"]
         )
@@ -37,11 +37,11 @@ def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
         return None
 
 def show_preview(selected_cmd, cmddir):
-    """Run cmdlist /c to show the preview of the selected command."""
+    """Run cmdlist.py --cmdonly to show the preview of the selected command."""
     if selected_cmd:
         try:
             result = subprocess.run(
-                f"cmdlist /c {selected_cmd}",
+                f"python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {selected_cmd}",
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -125,7 +125,7 @@ def main():
         sys.exit(1)
 
     # Run FZF to select a command
-    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview)
+    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview, cmddir=args.cmddir)
     if not selected:
         print("Command selection cancelled.")
         sys.exit(1)
