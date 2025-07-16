@@ -14,17 +14,18 @@ def get_cmd_files(cmddir):
         return []
     return [os.path.splitext(f)[0] for f in os.listdir(cmddir) if f.endswith(".cmd")]
 
-def run_fzf_with_preview(cmd_files, query="", preview_percent=60, cmddir=CMDDIR):
+def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
     """Run FZF with preview and return the selected command."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         selected = iterfzf(
             cmd_files,
             multi=False,
             query=query,
-            preview=f"python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {{}}",
+            preview=f"python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {{}}",
             bind={
                 "ctrl-b": f"change-preview(bat --style=plain --color=always --line-range=:50 {{}}.cmd)",
-                "ctrl-c": f"change-preview(python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {{}})"
+                "ctrl-c": f"change-preview(python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {{}})"
             },
             __extra__=[f"--preview-window=right:{preview_percent}%"]
         )
@@ -36,12 +37,13 @@ def run_fzf_with_preview(cmd_files, query="", preview_percent=60, cmddir=CMDDIR)
         print(f"Error running FZF: {e}")
         return None
 
-def show_preview(selected_cmd, cmddir):
+def show_preview(selected_cmd):
     """Run cmdlist.py --cmdonly to show the preview of the selected command."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     if selected_cmd:
         try:
             result = subprocess.run(
-                f"python {os.path.join(cmddir, 'cmdlist.py')} --cmdonly {selected_cmd}",
+                f"python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {selected_cmd}",
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -62,7 +64,7 @@ def get_user_edited_command(selected_cmd, keep_preview=False, cmddir=CMDDIR):
             print(f"Selected command: {selected_cmd}")
             # Show the preview if --keep is specified
             if keep_preview:
-                show_preview(selected_cmd, cmddir)
+                show_preview(selected_cmd)
                 print("  -- Press [Enter] to continue or [Ctrl+C] to cancel --")
             print("Add optional arguments:")
             # Display the base command (non-editable) with a space for arguments
@@ -125,7 +127,7 @@ def main():
         sys.exit(1)
 
     # Run FZF to select a command
-    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview, cmddir=args.cmddir)
+    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview)
     if not selected:
         print("Command selection cancelled.")
         sys.exit(1)
