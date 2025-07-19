@@ -51,7 +51,8 @@ def main():
         help="Pattern to match files (applies to both .cmd and .exe)."
     )
     parser.add_argument(
-        "--nobare",
+        "-b",
+        "--bare",
         action="store_true",
         help="Hide comments at the beginning of each CMD file (equivalent to /B)."
     )
@@ -76,7 +77,7 @@ def main():
     # Determine file types to show
     show_cmd = not args.exeonly or args.cmdonly
     show_exe = not args.cmdonly or args.exeonly
-    show_comments = not args.nobare
+    show_comments = not args.bare
 
     list_cmd_files(args.cmddir, args.pattern, show_cmd, show_exe, show_comments)
 
