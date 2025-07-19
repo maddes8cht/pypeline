@@ -5,7 +5,6 @@ import tkinter as tk
 from tkinter import filedialog
 import argparse
 
-
 def select_python_script():
     """Open a file dialog to select a Python script."""
     root = tk.Tk()
@@ -16,7 +15,6 @@ def select_python_script():
     )
     root.destroy()
     return file_path if file_path else None
-
 
 def select_cmd_file():
     """Open a file dialog to select a .cmd file."""
@@ -32,7 +30,6 @@ def select_cmd_file():
     root.destroy()
     return file_path if file_path else None
 
-
 def select_output_directory():
     """Open a directory dialog to select an output location."""
     root = tk.Tk()
@@ -47,7 +44,6 @@ def select_output_directory():
     )
     root.destroy()
     return dir_path if dir_path else None
-
 
 def extract_python_and_script_paths_and_env(cmd_file_path):
     """Extract the Python interpreter path, script path and env name from the .cmd file."""
@@ -99,7 +95,6 @@ def extract_python_and_script_paths_and_env(cmd_file_path):
         print(f"Error reading .cmd file {cmd_file_path}: {e}")
         sys.exit(1)
 
-
 def get_python_interpreter_for_conda_env(env_name):
     """Return the full path to the Python interpreter inside the given conda environment."""
     try:
@@ -120,7 +115,6 @@ def get_python_interpreter_for_conda_env(env_name):
         print(f"Error running conda to get python path: {e.stderr.strip()}")
         sys.exit(1)
 
-
 def main():
     # Argument parser
     parser = argparse.ArgumentParser(
@@ -138,6 +132,11 @@ def main():
         help="Conda environment name to use (overrides existing interpreter)."
     )
     parser.add_argument(
+        "--ask",
+        action="store_true",
+        help="Prompt for output directory if not specified. If not set, use script directory silently."
+    )
+    parser.add_argument(
         "script_path",
         nargs="?",
         help="Path to the Python script to wrap. Only used if --update is not specified. If not provided, a file dialog will open."
@@ -145,7 +144,7 @@ def main():
     parser.add_argument(
         "output_dir",
         nargs="?",
-        help="Directory where the .cmd file will be saved. Only used if --update is not specified. If not provided, a directory dialog will open."
+        help="Directory where the .cmd file will be saved. Only used if --update is not specified. If not provided and --ask is set, a directory dialog will open; otherwise, the script directory is used."
     )
 
     args = parser.parse_args()
@@ -175,6 +174,7 @@ def main():
 
     else:
         # CREATE MODE
+        script_dir = os.path.dirname(os.path.abspath(__file__))
         # Try to detect which positional arg is script vs output dir
         if args.script_path and os.path.isdir(args.script_path) and not args.output_dir:
             # User gave only a dir → open file dialog to select script
@@ -182,7 +182,12 @@ def main():
             output_dir = args.script_path
         else:
             script_path = args.script_path if args.script_path and os.path.isfile(args.script_path) else select_python_script()
-            output_dir = args.output_dir if args.output_dir and os.path.isdir(args.output_dir) else select_output_directory()
+            if args.output_dir and os.path.isdir(args.output_dir):
+                output_dir = args.output_dir
+            elif args.ask:
+                output_dir = select_output_directory()
+            else:
+                output_dir = script_dir  # Use script directory silently
 
         if not script_path or not os.path.isfile(script_path):
             print("Error: No valid Python script selected.")
@@ -238,11 +243,10 @@ def main():
     try:
         with open(output_path, "w", newline="\r\n") as f:
             f.write("\n".join(content))
-        print(f"Successfully created/updated: {output_path}")
+        print(f"Successfully created/updated: {os.path.normpath(output_path)}")
     except IOError as e:
-        print(f"Error writing file {output_path}: {e}")
+        print(f"Error writing file {os.path.normpath(output_path)}: {e}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
