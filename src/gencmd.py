@@ -232,8 +232,8 @@ def main():
 
     # Build content
     content = [
-        f":: wrapper for {os.path.basename(script_path)}",
-        f":: env-name: {env_name_for_comment}",
+        f":: cmd  : {os.path.basename(script_path)}",
+        f":: env  : {env_name_for_comment}",
         *processed_help,
         "@echo off",
         f'"{python_interpreter}" "{os.path.abspath(script_path)}" %*'
