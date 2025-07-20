@@ -68,8 +68,8 @@ def main():
     )
     parser.add_argument(
         "--cmddir",
-        default=r"C:\PAP\cmd",
-        help="Directory containing .cmd and .exe files. Default: C:\\PAP\\cmd."
+        default=os.path.dirname(os.path.abspath(__file__)),
+        help="Directory containing .cmd and .exe files. Default: the script's directory."
     )
 
     args = parser.parse_args()
