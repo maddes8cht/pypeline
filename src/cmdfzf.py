@@ -14,9 +14,17 @@ def get_cmd_files(cmddir):
         return []
     return [os.path.splitext(f)[0] for f in os.listdir(cmddir) if f.endswith(".cmd")]
 
-def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
+def run_fzf_with_preview(cmd_files, query="", preview_percent=60, keep=False):
     """Run FZF with preview and return the selected command."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Define the footer with keybindings and --keep status
+    footer_lines = [
+        "Ctrl+Q (quit)",
+        "Enter (run command, add arguments)"
+    ]
+    footer = "|".join(footer_lines)  # Use | as a separator for multi-line header
+    label = f"--keep: {'On' if keep else 'Off'}, --preview: {preview_percent}%, --cmddir: {CMDDIR}"
+    preview_label = "Ctrl+B (bat), Ctrl+C (cmdlist.py), PgUp/PgDn (scroll)"
     try:
         selected = iterfzf(
             cmd_files,
@@ -29,7 +37,16 @@ def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
                 "pgup": "preview-up",  # Bind PgUp to scroll up in preview
                 "pgdn": "preview-down"  # Bind PgDown to scroll down in preview
             },
-            __extra__=[f"--preview-window=right:{preview_percent}%"]
+            __extra__=[
+                f"--border=bold",
+                f"--border-label={label}",
+                f"--border-label-pos=3",
+                f"--preview-window=right:{preview_percent}%",
+                f"--preview-border=bold",
+                f"--preview-label={preview_label}",
+                #f"--info=inline",
+                # f"--header={footer}"
+            ]
         )
         return selected
     except KeyboardInterrupt:
@@ -129,7 +146,7 @@ def main():
         sys.exit(1)
 
     # Run FZF to select a command
-    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview)
+    selected = run_fzf_with_preview(cmd_files, query=args.query, preview_percent=args.preview, keep=args.keep)
     if not selected:
         print("Command selection cancelled.")
         sys.exit(1)
@@ -141,6 +158,5 @@ def main():
     else:
         print("Command execution cancelled.")
         sys.exit(1)
-
 if __name__ == "__main__":
     main()
