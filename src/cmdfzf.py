@@ -25,7 +25,9 @@ def run_fzf_with_preview(cmd_files, query="", preview_percent=60):
             preview=f"python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {{}}",
             bind={
                 "ctrl-b": f"change-preview(bat --style=plain --color=always --line-range=:50 {{}}.cmd)",
-                "ctrl-c": f"change-preview(python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {{}})"
+                "ctrl-c": f"change-preview(python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {{}})",
+                "pgup": "preview-up",  # Bind PgUp to scroll up in preview
+                "pgdn": "preview-down"  # Bind PgDown to scroll down in preview
             },
             __extra__=[f"--preview-window=right:{preview_percent}%"]
         )
