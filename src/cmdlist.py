@@ -2,12 +2,29 @@ import os
 import glob
 import argparse
 import sys
+import subprocess
 
-def list_cmd_files(cmddir, pattern="*", show_cmd=True, show_exe=True, show_comments=True):
-    """List .cmd and/or .exe files in cmddir matching pattern, with optional comments."""
+def list_cmd_files(cmddir, pattern="*", show_cmd=True, show_exe=True, show_comments=True, bat_file=None):
+    """List .cmd and/or .exe files in cmddir matching pattern, with optional comments, or display a single file with bat."""
     if not os.path.exists(cmddir):
-        print(f"Error: Directory {cmddir} does not exist!")
+        print(f"Error: Directory {cmddir} does not exist!", file=sys.stderr)
         sys.exit(1)
+
+    if bat_file:
+        # Display a single .cmd file using bat
+        cmd_path = os.path.join(cmddir, f"{bat_file}.cmd")
+        if not os.path.isfile(cmd_path):
+            print(f"Error: File {cmd_path} does not exist!", file=sys.stderr)
+            sys.exit(1)
+        try:
+            subprocess.run(["bat", "--style=plain", "--color=always", cmd_path], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error running bat for {cmd_path}: {e}", file=sys.stderr)
+            sys.exit(1)
+        except FileNotFoundError:
+            print("Error: 'bat' command not found. Please ensure bat is installed and in your PATH.", file=sys.stderr)
+            sys.exit(1)
+        return
 
     # Normalize pattern for glob
     pattern = f"*{pattern}*" if pattern else "*"
@@ -42,7 +59,7 @@ def list_cmd_files(cmddir, pattern="*", show_cmd=True, show_exe=True, show_comme
 
 def main():
     parser = argparse.ArgumentParser(
-        description="List CMD and/or EXE files in a directory and display comments at the beginning of each CMD file."
+        description="List CMD and/or EXE files in a directory, display comments, or show a single CMD file with bat."
     )
     parser.add_argument(
         "pattern",
@@ -67,6 +84,10 @@ def main():
         help="List only EXE files (equivalent to /e)."
     )
     parser.add_argument(
+        "--bat",
+        help="Display the specified CMD file using bat."
+    )
+    parser.add_argument(
         "--cmddir",
         default=os.path.dirname(os.path.abspath(__file__)),
         help="Directory containing .cmd and .exe files. Default: the script's directory."
@@ -79,7 +100,14 @@ def main():
     show_exe = not args.cmdonly or args.exeonly
     show_comments = not args.bare
 
-    list_cmd_files(args.cmddir, args.pattern, show_cmd, show_exe, show_comments)
+    list_cmd_files(
+        args.cmddir,
+        args.pattern,
+        show_cmd,
+        show_exe,
+        show_comments,
+        bat_file=args.bat
+    )
 
 if __name__ == "__main__":
     main()
