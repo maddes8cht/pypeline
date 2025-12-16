@@ -1,0 +1,16 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+		{
+			"label": "Generate Command with gencmd",
+			"type": "shell",
+			"command": "gencmd ${file}",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"detail": "Run gencmd on the active Python file to generate an executable command."
+		}
+	]
+}
