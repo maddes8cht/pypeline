@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
+from debug import debug, verbose
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"}
@@ -101,9 +102,11 @@ def get_menu_content(nav_items: List[Dict[str, Any]], active_key: str) -> str:
         if key == active_key:
             link = f"**{title}**"
         else:
-            if item.get("type") == "link":
+            # NEW: Wenn type==link und 'link' vorhanden → nutze 'link'
+            if item.get("type") == "link" and "link" in item:
                 target = item["link"]
             else:
+                # Normalerweise: verlinke auf 'file'
                 target = item["file"]
             link = f"[{title}]({target})"
         links.append(link)
@@ -118,7 +121,7 @@ def get_sitemap_content(nav_items: List[Dict[str, Any]], active_key: str) -> str
         if key == active_key:
             lines.append(f"- **{title}**")
         else:
-            if item.get("type") == "link":
+            if item.get("type") == "link" and "link" in item:
                 target = item["link"]
             else:
                 target = item["file"]
@@ -392,11 +395,11 @@ def main():
     warnings = 0
 
     for item in content_block:
-        # Handle 'link' type: skip file generation entirely
-        if item.get("type") == "link":
+        # Skip pure external links (no file to generate)
+        if item.get("type") == "link" and "file" not in item:
             continue
 
-        # For all other types, 'file' is required
+        # For all other items (including 'type: link' WITH 'file'), 'file' is required
         if "file" not in item:
             print(f"⚠️  Missing 'file' in item: {item.get('title', 'unnamed')}")
             warnings += 1
