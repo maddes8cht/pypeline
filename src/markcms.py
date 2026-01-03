@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-Markdown Documentation Generator with Templates, Gallery (with media linking), and Navigation.
+Markdown Documentation Generator with Templates, Enhanced Gallery, and Media Previews.
 
-Directory keys in config (and CLI) follow consistent naming:
+Features:
+- Backward compatible: works with old configs (no template, no media_previews)
+- Global media_previews with per-gallery media_dir support
+- Paired previews (video.mp4 + video.jpg) take precedence
+- Preview templates stored in template_media_dir (default: templates_dir/media-icons)
+- Full FrontMatter preservation
+- Dry-run mode for validation
+- Supports 'type: link' entries without requiring 'file'
+
+Directory config keys (consistent):
   - docs_dir
   - templates_dir
   - out_dir
   - media_dir
+  - template_media_dir
 
-Gallery enhancement:
-  - If 'video.mp4' and 'video.jpg' exist → generates [![](video.jpg)](video.mp4)
-  - Only image? → plain image
-  - Only non-image? → skipped (no preview)
+Content block: use 'docs' (preferred); 'nav' is deprecated.
 """
 
 import argparse
@@ -23,7 +30,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 
-# Supported image extensions for preview/thumbnail
+# Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"}
 
 # FrontMatter regex
@@ -33,11 +40,34 @@ FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 PLACEHOLDERS = {"frontmatter", "menu", "content", "timestamp", "sitemap"}
 
 
+import sys  # <-- am Anfang der Datei hinzufügen
+
+# ... [andere imports] ...
+
 def load_config(config_path: Path) -> Dict[str, Any]:
     if not config_path.exists():
         raise FileNotFoundError(f"❌ Config file not found: {config_path}")
-    with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        error_msg = str(e)
+        if "found character '\\t' that cannot start any token" in error_msg:
+            line_info = ""
+            if hasattr(e, 'problem_mark') and e.problem_mark:
+                line_info = f" near line {e.problem_mark.line + 1}"
+            detailed_msg = (
+                f"❌ Invalid YAML in config file: {config_path}{line_info}\n"
+                f"   → YAML does not allow TAB characters for indentation.\n"
+                f"   → Please replace all TABs with spaces (e.g., 2 or 4 per level).\n"
+                f"   → Tip: Enable 'Render Whitespace' in your editor to see TABs."
+            )
+        else:
+            detailed_msg = (
+                f"❌ Invalid YAML syntax in config file: {config_path}\n"
+                f"   → {error_msg}"
+            )
+        raise ValueError(detailed_msg) from e
 
 
 def extract_frontmatter(content: str) -> Tuple[Optional[str], str]:
@@ -49,88 +79,135 @@ def extract_frontmatter(content: str) -> Tuple[Optional[str], str]:
     return None, content
 
 
-def get_menu_content(nav_items: List[Dict[str, Any]], active_file: str) -> str:
+def get_menu_key(item: Dict[str, Any]) -> str:
+    """Return a stable, unique key for menu/sitemap identification."""
+    if "file" in item:
+        return item["file"]
+    elif item.get("type") == "link":
+        # Generate a safe, deterministic key from title
+        title = item["title"]
+        safe_title = re.sub(r"[^\w\-_.]", "_", title)
+        return f"__link__{safe_title}__"
+    else:
+        # Fallback (should not occur in valid config)
+        return item["title"]
+
+
+def get_menu_content(nav_items: List[Dict[str, Any]], active_key: str) -> str:
     links = []
     for item in nav_items:
         title = item["title"]
-        target = item["file"]
-        if target == active_file:
+        key = get_menu_key(item)
+        if key == active_key:
             link = f"**{title}**"
         else:
+            if item.get("type") == "link":
+                target = item["link"]
+            else:
+                target = item["file"]
             link = f"[{title}]({target})"
         links.append(link)
     return " • ".join(links)
 
 
-def get_sitemap_content(nav_items: List[Dict[str, Any]], active_file: str) -> str:
+def get_sitemap_content(nav_items: List[Dict[str, Any]], active_key: str) -> str:
     lines = []
     for item in nav_items:
         title = item["title"]
-        target = item["file"]
-        if target == active_file:
+        key = get_menu_key(item)
+        if key == active_key:
             lines.append(f"- **{title}**")
         else:
+            if item.get("type") == "link":
+                target = item["link"]
+            else:
+                target = item["file"]
             lines.append(f"- [{title}]({target})")
     return "\n".join(lines)
+
+
+def _is_subpath(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def make_relative_path(path: Path, start: Path) -> Path:
+    """Safely compute relative path, falling back to os.path.relpath if needed."""
+    if path.is_absolute() and _is_subpath(path, start):
+        return path.relative_to(start)
+    else:
+        # Use os.path.relpath and return as Path
+        return Path(os.path.relpath(path, start))
 
 
 def generate_gallery_content(
     item: Dict[str, Any],
     global_media_dir: Path,
+    template_media_dir: Path,
+    media_previews: Dict[str, str],
     config_dir: Path,
     output_file_path: Path,
 ) -> str:
-    """
-    Generate gallery content.
-    - If item has 'media_dir', use it (relative to global_media_dir if not absolute)
-    - Else, use global_media_dir
-    - Legacy fallback: config_dir / "media" (if global_media_dir is default)
-    """
+    # Resolve media directory for this gallery: relative to config_dir
     media_dir_str = item.get("media_dir")
     if media_dir_str:
-        media_dir = Path(media_dir_str)
-        if not media_dir.is_absolute():
-            # Resolve relative to global media base
-            media_dir = global_media_dir.parent / media_dir
+        media_dir = (config_dir / media_dir_str).resolve()
     else:
-        # Use global media_dir (already resolved to absolute path)
         media_dir = global_media_dir
 
     if not media_dir.exists():
         return f"⚠️ Media directory not found: {media_dir}"
 
-    # Group files by stem
+    preview_map = {k.lower(): v for k, v in media_previews.items()}
     files_by_stem = defaultdict(list)
     for f in media_dir.iterdir():
         if f.is_file():
             files_by_stem[f.stem].append(f)
 
     gallery_entries = []
+    handled_stems = set()
+
+    # First: paired previews (highest priority)
     for stem, file_list in files_by_stem.items():
         image_files = [f for f in file_list if f.suffix.lower() in IMAGE_EXTENSIONS]
         other_files = [f for f in file_list if f.suffix.lower() not in IMAGE_EXTENSIONS]
-
         if image_files and other_files:
             gallery_entries.append((image_files[0], other_files[0]))
-        elif image_files:
-            gallery_entries.append((image_files[0], None))
+            handled_stems.add(stem)
+
+    # Second: unpaired files using media_previews
+    for stem, file_list in files_by_stem.items():
+        if stem in handled_stems:
+            continue
+        for f in file_list:
+            if f.suffix.lower() in IMAGE_EXTENSIONS:
+                gallery_entries.append((f, None))
+            else:
+                ext = f.suffix.lower()[1:]
+                if ext in preview_map:
+                    preview_name = preview_map[ext]
+                    preview_path = template_media_dir / preview_name
+                    if preview_path.exists():
+                        gallery_entries.append((preview_path, f))
 
     if not gallery_entries:
-        return "📭 No images or media pairs found."
+        return "📭 No images or supported media files found."
 
     lines = [f"# {item['title']}\n"]
     columns = item.get("columns", 1)
     show_filename = item.get("show-filename", False)
     create_link = item.get("create-link", False)
-
     rel_root = output_file_path.parent
 
     if columns == 1:
         for preview, target in gallery_entries:
-            rel_preview = os.path.relpath(preview, rel_root)
+            rel_preview = make_relative_path(preview, rel_root)
             alt_text = preview.name
             if target:
-                rel_target = os.path.relpath(target, rel_root)
+                rel_target = make_relative_path(target, rel_root)
                 img_md = f"[![{alt_text}]({rel_preview})]({rel_target})"
             else:
                 img_md = f"![{alt_text}]({rel_preview})"
@@ -146,10 +223,10 @@ def generate_gallery_content(
         lines.append(f"|{'---|' * columns}")
         row = []
         for preview, target in gallery_entries:
-            rel_preview = os.path.relpath(preview, rel_root)
+            rel_preview = make_relative_path(preview, rel_root)
             alt_text = preview.name
             if target:
-                rel_target = os.path.relpath(target, rel_root)
+                rel_target = make_relative_path(target, rel_root)
                 cell = f"[![{alt_text}]({rel_preview})]({rel_target})"
             else:
                 img_md = f"![{alt_text}]({rel_preview})"
@@ -216,7 +293,7 @@ def load_template_file(templates_dir: Path, filename: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate navigable Markdown documentation with templates and enhanced gallery."
+        description="Generate navigable Markdown documentation with templates and media previews."
     )
     parser.add_argument(
         "--config",
@@ -242,6 +319,11 @@ def main():
         "--media-dir",
         type=Path,
         help="Default media directory (fallback for gallery entries)",
+    )
+    parser.add_argument(
+        "--template-media-dir",
+        type=Path,
+        help="Directory for media preview templates (e.g., video.jpg for .mp4 files)",
     )
     parser.add_argument(
         "--sitemap",
@@ -277,21 +359,21 @@ def main():
         content_block = docs_block
         block_name = "docs"
     elif nav_block is not None:
+        print("⚠️  'nav' block is deprecated. Use 'docs' instead.")
         content_block = nav_block
         block_name = "nav (deprecated)"
     else:
         raise ValueError("❌ Config must contain 'docs' or 'nav' block.")
 
-    # Resolve directories (CLI overrides config)
-    docs_dir = args.docs_dir or Path(config.get("docs_dir", config_dir))
-    templates_dir = args.templates_dir or Path(config.get("templates_dir", docs_dir))
-    out_dir = args.out_dir or Path(config.get("out_dir", "."))
-    media_dir = args.media_dir or Path(config.get("media_dir", config_dir / "media"))
-
-    docs_dir = docs_dir.resolve()
-    templates_dir = templates_dir.resolve()
-    out_dir = out_dir.resolve()
-    media_dir = media_dir.resolve()
+    # Resolve directories
+    docs_dir = (args.docs_dir or Path(config.get("docs_dir", config_dir))).resolve()
+    templates_dir = (args.templates_dir or Path(config.get("templates_dir", docs_dir))).resolve()
+    out_dir = (args.out_dir or Path(config.get("out_dir", "."))).resolve()
+    media_dir = (args.media_dir or Path(config.get("media_dir", config_dir / "media"))).resolve()
+    template_media_dir = (
+        args.template_media_dir
+        or Path(config.get("template_media_dir", templates_dir / "media-icons"))
+    ).resolve()
 
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -299,13 +381,27 @@ def main():
     # Template config
     template_config = config.get("template", {})
     global_template_file = template_config.get("template")
-    # Fragment filenames are only used if referenced in template
-    # (no need to preload)
+
+    # Media previews
+    media_previews = config.get("media_previews", {})
+    if media_previews and not args.dry_run:
+        if not template_media_dir.exists():
+            print(f"⚠️  template_media_dir not found (required for media_previews): {template_media_dir}")
 
     timestamp = datetime.now().strftime("%Y-%m-%d")
     warnings = 0
 
     for item in content_block:
+        # Handle 'link' type: skip file generation entirely
+        if item.get("type") == "link":
+            continue
+
+        # For all other types, 'file' is required
+        if "file" not in item:
+            print(f"⚠️  Missing 'file' in item: {item.get('title', 'unnamed')}")
+            warnings += 1
+            continue
+
         file_name = item["file"]
         output_file = out_dir / file_name
 
@@ -319,7 +415,8 @@ def main():
             template_content = "{frontmatter}\n{menu}\n{content}\n{menu}"
 
         # Load content
-        if item.get("type") not in ("sitemap", "gallery"):
+        item_type = item.get("type")
+        if item_type not in ("sitemap", "gallery"):
             source_file = docs_dir / file_name
             if source_file.exists():
                 raw_content = source_file.read_text(encoding="utf-8")
@@ -335,14 +432,21 @@ def main():
             content = ""
 
         # Generate special content
-        if item.get("type") == "sitemap":
-            content = get_sitemap_content(content_block, file_name)
-        elif item.get("type") == "gallery":
-            content = generate_gallery_content(item, media_dir, config_dir, output_file)
+        if item_type == "sitemap":
+            content = get_sitemap_content(content_block, get_menu_key(item))
+        elif item_type == "gallery":
+            content = generate_gallery_content(
+                item,
+                media_dir,
+                template_media_dir,
+                media_previews,
+                config_dir,
+                output_file,
+            )
 
         # Build context
-        menu_str = get_menu_content(content_block, file_name)
-        sitemap_str = get_sitemap_content(content_block, file_name)
+        menu_str = get_menu_content(content_block, get_menu_key(item))
+        sitemap_str = get_sitemap_content(content_block, get_menu_key(item))
 
         context = {
             "frontmatter": frontmatter or "",
@@ -352,7 +456,7 @@ def main():
             "sitemap": sitemap_str,
         }
 
-        # Expand
+        # Expand placeholders
         final_content = expand_placeholders(
             template_content, context, templates_dir, content_block, file_name
         )
