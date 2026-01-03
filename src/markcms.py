@@ -9,7 +9,9 @@ Features:
 - Preview templates stored in template_media_dir (default: templates_dir/media-icons)
 - Full FrontMatter preservation
 - Dry-run mode for validation
-- Supports 'type: link' entries without requiring 'file'
+- Supports 'type: link' entries (with or without 'file') for GitHub/HF UX
+- All paths in config resolved relative to _config.yml (unless absolute)
+- Verbose mode for debugging
 
 Directory config keys (consistent):
   - docs_dir
@@ -24,12 +26,23 @@ Content block: use 'docs' (preferred); 'nav' is deprecated.
 import argparse
 import os
 import re
+import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
-from debug import debug, verbose
+
+# Optional debug/verbose support
+try:
+    from debug import debug, verbose
+except ImportError:
+    class DummyDebug:
+        def print(self, *args, **kwargs): pass
+        def on(self): pass
+        def off(self): pass
+    debug = DummyDebug()
+    verbose = DummyDebug()
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"}
@@ -41,9 +54,11 @@ FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 PLACEHOLDERS = {"frontmatter", "menu", "content", "timestamp", "sitemap"}
 
 
-import sys  # <-- am Anfang der Datei hinzufügen
+def resolve_path(path_str: str, base_dir: Path) -> Path:
+    """Resolve a path string: absolute as-is, relative to base_dir."""
+    p = Path(path_str)
+    return p if p.is_absolute() else (base_dir / p).resolve()
 
-# ... [andere imports] ...
 
 def load_config(config_path: Path) -> Dict[str, Any]:
     if not config_path.exists():
@@ -85,12 +100,10 @@ def get_menu_key(item: Dict[str, Any]) -> str:
     if "file" in item:
         return item["file"]
     elif item.get("type") == "link":
-        # Generate a safe, deterministic key from title
         title = item["title"]
         safe_title = re.sub(r"[^\w\-_.]", "_", title)
         return f"__link__{safe_title}__"
     else:
-        # Fallback (should not occur in valid config)
         return item["title"]
 
 
@@ -102,11 +115,9 @@ def get_menu_content(nav_items: List[Dict[str, Any]], active_key: str) -> str:
         if key == active_key:
             link = f"**{title}**"
         else:
-            # NEW: Wenn type==link und 'link' vorhanden → nutze 'link'
             if item.get("type") == "link" and "link" in item:
                 target = item["link"]
             else:
-                # Normalerweise: verlinke auf 'file'
                 target = item["file"]
             link = f"[{title}]({target})"
         links.append(link)
@@ -142,7 +153,6 @@ def make_relative_path(path: Path, start: Path) -> Path:
     if path.is_absolute() and _is_subpath(path, start):
         return path.relative_to(start)
     else:
-        # Use os.path.relpath and return as Path
         return Path(os.path.relpath(path, start))
 
 
@@ -154,10 +164,9 @@ def generate_gallery_content(
     config_dir: Path,
     output_file_path: Path,
 ) -> str:
-    # Resolve media directory for this gallery: relative to config_dir
     media_dir_str = item.get("media_dir")
     if media_dir_str:
-        media_dir = (config_dir / media_dir_str).resolve()
+        media_dir = resolve_path(media_dir_str, config_dir)
     else:
         media_dir = global_media_dir
 
@@ -173,7 +182,6 @@ def generate_gallery_content(
     gallery_entries = []
     handled_stems = set()
 
-    # First: paired previews (highest priority)
     for stem, file_list in files_by_stem.items():
         image_files = [f for f in file_list if f.suffix.lower() in IMAGE_EXTENSIONS]
         other_files = [f for f in file_list if f.suffix.lower() not in IMAGE_EXTENSIONS]
@@ -181,7 +189,6 @@ def generate_gallery_content(
             gallery_entries.append((image_files[0], other_files[0]))
             handled_stems.add(stem)
 
-    # Second: unpaired files using media_previews
     for stem, file_list in files_by_stem.items():
         if stem in handled_stems:
             continue
@@ -338,7 +345,15 @@ def main():
         action="store_true",
         help="Validate and preview output without writing files",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output (shows resolved paths and processing details)",
+    )
     args = parser.parse_args()
+
+    if args.verbose:
+        verbose.on()
 
     # Load config
     if args.config:
@@ -368,28 +383,62 @@ def main():
     else:
         raise ValueError("❌ Config must contain 'docs' or 'nav' block.")
 
-    # Resolve directories
-    docs_dir = (args.docs_dir or Path(config.get("docs_dir", config_dir))).resolve()
-    templates_dir = (args.templates_dir or Path(config.get("templates_dir", docs_dir))).resolve()
-    out_dir = (args.out_dir or Path(config.get("out_dir", "."))).resolve()
-    media_dir = (args.media_dir or Path(config.get("media_dir", config_dir / "media"))).resolve()
-    template_media_dir = (
-        args.template_media_dir
-        or Path(config.get("template_media_dir", templates_dir / "media-icons"))
-    ).resolve()
+    # Resolve directories relative to config_dir
+    docs_dir = resolve_path(
+        str(args.docs_dir or config.get("docs_dir", config_dir)), config_dir
+    )
+    templates_dir = resolve_path(
+        str(args.templates_dir or config.get("templates_dir", docs_dir)), config_dir
+    )
+    out_dir = resolve_path(
+        str(args.out_dir or config.get("out_dir", ".")), config_dir
+    )
+    media_dir = resolve_path(
+        str(args.media_dir or config.get("media_dir", config_dir / "media")), config_dir
+    )
+    template_media_dir = resolve_path(
+        str(args.template_media_dir or config.get("template_media_dir", templates_dir / "media-icons")),
+        config_dir
+    )
 
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Template config
+    # Template & media config
     template_config = config.get("template", {})
     global_template_file = template_config.get("template")
-
-    # Media previews
     media_previews = config.get("media_previews", {})
+
     if media_previews and not args.dry_run:
         if not template_media_dir.exists():
             print(f"⚠️  template_media_dir not found (required for media_previews): {template_media_dir}")
+
+    # Verbose output
+    verbose.print("📍 Resolved paths:")
+    verbose.print(f"   config_path        : {config_path}")
+    verbose.print(f"   config_dir         : {config_dir}")
+    verbose.print(f"   docs_dir           : {docs_dir}")
+    verbose.print(f"   templates_dir      : {templates_dir}")
+    verbose.print(f"   out_dir            : {out_dir}")
+    verbose.print(f"   media_dir          : {media_dir}")
+    verbose.print(f"   template_media_dir : {template_media_dir}")
+
+    if media_previews:
+        verbose.print("\n🖼️  Media preview mappings:")
+        for ext, preview in media_previews.items():
+            verbose.print(f"   .{ext} → {preview}")
+
+    verbose.print(f"\n📄 Processing {len(content_block)} docs entries:")
+    for i, item in enumerate(content_block, 1):
+        title = item.get('title', 'unnamed')
+        file_ = item.get('file', '–')
+        type_ = item.get('type', 'page')
+        if type_ == 'link' and 'file' not in item:
+            action = "skip (external link)"
+        else:
+            action = "generate"
+        target = item.get('link') if type_ == 'link' and 'link' in item else file_
+        verbose.print(f"   {i}. {title!r} → {target} [{type_}] → {action}")
 
     timestamp = datetime.now().strftime("%Y-%m-%d")
     warnings = 0
@@ -486,4 +535,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as e:
+        if "Invalid YAML" in str(e) or "Config file not found" in str(e):
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        else:
+            raise
