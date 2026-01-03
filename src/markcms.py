@@ -12,6 +12,8 @@ Features:
 - Supports 'type: link' entries (with or without 'file') for GitHub/HF UX
 - All paths in config resolved relative to _config.yml (unless absolute)
 - Verbose mode for debugging
+- Custom template fragments via 'templates' section in _config.yml
+- Reserved names protected (no overriding of {menu}, {header}, etc.)
 
 Directory config keys (consistent):
   - docs_dir
@@ -50,8 +52,14 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"}
 # FrontMatter regex
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# Supported placeholders
+# Supported context placeholders (NOT for template fragments)
 PLACEHOLDERS = {"frontmatter", "menu", "content", "timestamp", "sitemap"}
+
+# Hardcoded standard fragments (auto-loaded as {name}.md)
+STANDARD_FRAGMENTS = {"header", "footer", "special"}
+
+# Combined reserved names: context placeholders + standard fragments
+RESERVED_TEMPLATE_NAMES = PLACEHOLDERS | STANDARD_FRAGMENTS
 
 
 def resolve_path(path_str: str, base_dir: Path) -> Path:
@@ -264,29 +272,44 @@ def expand_placeholders(
     templates_dir: Path,
     nav_items: List[Dict[str, Any]],
     active_file: str,
+    custom_fragments: Dict[str, str],
     depth: int = 0,
 ) -> str:
     if depth > 3:
         return template
 
+    # Replace context placeholders (frontmatter, menu, etc.)
     for placeholder in PLACEHOLDERS:
         if f"{{{placeholder}}}" in template:
             value = context.get(placeholder, "")
             template = template.replace(f"{{{placeholder}}}", value)
 
-    possible_fragments = ["header", "footer", "special"]
-    for frag in possible_fragments:
-        if f"{{{frag}}}" in template:
-            frag_file = templates_dir / f"{frag}.md"
+    # Combine standard and custom fragments
+    all_fragments = {}
+    # Standard fragments: {name} -> {name}.md
+    for name in STANDARD_FRAGMENTS:
+        all_fragments[name] = f"{name}.md"
+    # Custom fragments from config
+    all_fragments.update(custom_fragments)
+
+    for frag_name, frag_file_name in all_fragments.items():
+        if f"{{{frag_name}}}" in template:
+            frag_file = templates_dir / frag_file_name
             if frag_file.exists():
                 frag_content = frag_file.read_text(encoding="utf-8")
                 frag_context = context.copy()
                 frag_expanded = expand_placeholders(
-                    frag_content, frag_context, templates_dir, nav_items, active_file, depth + 1
+                    frag_content,
+                    frag_context,
+                    templates_dir,
+                    nav_items,
+                    active_file,
+                    custom_fragments,
+                    depth + 1
                 )
-                template = template.replace(f"{{{frag}}}", frag_expanded)
+                template = template.replace(f"{{{frag_name}}}", frag_expanded)
             else:
-                template = template.replace(f"{{{frag}}}", f"⚠️ {frag}.md not found")
+                template = template.replace(f"{{{frag_name}}}", f"⚠️ {frag_file_name} not found")
 
     return template
 
@@ -382,6 +405,24 @@ def main():
         block_name = "nav (deprecated)"
     else:
         raise ValueError("❌ Config must contain 'docs' or 'nav' block.")
+
+    # Load and validate custom template fragments
+    custom_fragments = {}
+    if "templates" in config:
+        for frag_def in config["templates"]:
+            if isinstance(frag_def, dict) and len(frag_def) == 1:
+                name, filename = next(iter(frag_def.items()))
+                if name in RESERVED_TEMPLATE_NAMES:
+                    raise ValueError(
+                        f"❌ Reserved template name not allowed: '{name}'\n"
+                        f"   → Reserved names: {sorted(RESERVED_TEMPLATE_NAMES)}"
+                    )
+                custom_fragments[name] = filename
+            else:
+                raise ValueError(
+                    f"❌ Invalid template entry: {frag_def}\n"
+                    f"   → Expected format: '- name: filename.md'"
+                )
 
     # Resolve directories relative to config_dir
     docs_dir = resolve_path(
@@ -508,9 +549,14 @@ def main():
             "sitemap": sitemap_str,
         }
 
-        # Expand placeholders
+        # Expand placeholders (including custom fragments)
         final_content = expand_placeholders(
-            template_content, context, templates_dir, content_block, file_name
+            template_content,
+            context,
+            templates_dir,
+            content_block,
+            file_name,
+            custom_fragments
         )
 
         # Output
@@ -538,7 +584,7 @@ if __name__ == "__main__":
     try:
         main()
     except ValueError as e:
-        if "Invalid YAML" in str(e) or "Config file not found" in str(e):
+        if "Invalid YAML" in str(e) or "Config file not found" in str(e) or "Reserved template name" in str(e):
             print(e, file=sys.stderr)
             sys.exit(1)
         else:
