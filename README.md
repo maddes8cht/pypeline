@@ -9,11 +9,11 @@ Super easy and simple system to manage my python scripts scattered in different 
 
 ## Tools
 
-### `generate-cmd.py`
+### `gencmd.py`
 
 **Problem**: I have Python scripts scattered across different Conda environments and GitHub repos. Running them requires switching to the right directory and environment, which is tedious from various terminals or editors. Even with shebangs or PATH setups, finding the correct Conda environment is a hassle.
 
-**Solution**: `generate-cmd.py` creates Windows `.cmd` wrappers for Python scripts, embedding their `--help` text as comments. These wrappers go into a central `C:\PAP\cmd` directory (in my `PATH`), so I can run scripts from anywhere. Paired with `cmdfzf.cmd`, which uses `fzf` to browse and preview help text, it’s a fast, organized system to find and execute scripts—even if I vaguely remember their names.
+**Solution**: `gencmd.py` creates Windows `.cmd` wrappers for Python scripts, embedding their `--help` text as comments. These wrappers go into a central `C:\PAP\cmd` directory (in my `PATH`), so I can run scripts from anywhere. Paired with `cmdfzf.cmd`, which uses `fzf` to browse and preview help text, it’s a fast, organized system to find and execute scripts—even if I vaguely remember their names.
 
 ### `cmdfzf.cmd`
 
@@ -26,6 +26,11 @@ Super easy and simple system to manage my python scripts scattered in different 
 **Problem**: I manage projects with GitHub Issues, creating issue branches, solving them, and merging back. To keep LLMs updated on project status via RAG, I need a concise summary of issues.
 
 **Solution**: `generate-issue-md.py` pulls GitHub issues and generates a single Markdown file with summaries and details. It’s customizable (filter by state, add emojis) and creates LLM-friendly reports, streamlining project tracking.
+
+### `markcms.py`
+**Problem**: `README.md` files on platforms like GitHub, Hugging Face, or GitLab aren’t designed for multi-page navigation, and usually, that’s fine. But sometimes, especially on Hugging Face where alternatives like Wikis or Pages aren’t available, I do need a simple, self-contained navigation across several documentation pages. And I want it to feel native, not hacked together.
+
+**Solution**: `markcms.py` is a lightweight, template-driven Markdown CMS that generates navigable, multi-page documentation from a _config.yml. It supports reusable template fragments, responsive media galleries with preview fallbacks, smart navigation with external/internal links, and platform-aware routing (e.g., linking back to a Hugging Face dataset homepage instead of a file view). With --dry-run, --verbose, and --list-placeholders, it’s built for clarity, automation, and seamless integration into my pypeline workflow.
 
 ### `debug.py`
 
