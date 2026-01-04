@@ -11,6 +11,17 @@
 			},
 			"problemMatcher": [],
 			"detail": "Run gencmd on the active Python file to generate an executable command."
-		}
+		},
+        {
+            "label": "Generate Command using yfinance-env",
+            "type": "shell",
+            "command": "gencmd -n yfinance-env ${file}",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "detail": "Run gencmd on the active Python file to generate an executable command."
+        }
 	]
 }

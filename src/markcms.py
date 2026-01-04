@@ -15,7 +15,9 @@ Features:
 - Custom template fragments via 'templates' section in _config.yml
 - Reserved names protected
 - GLOBAL PLACEHOLDERS like {timestamp} work everywhere
-- NEW: --list-placeholders to list all available template variables
+- NEW: --list-placeholders to list all available template placeholders
+- NEW: {gallery} placeholder for flexible gallery placement (backward compatible)
+- FIXED: Non-deterministic {gallery} behavior — now always replaced
 
 Directory config keys (consistent):
   - docs_dir
@@ -37,6 +39,15 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 
+# -------------------------------------------------------------------------
+# UTF-8 Encoding Fix for Pipes on Windows
+# -------------------------------------------------------------------------
+# Forces UTF-8 for stdout and stderr to prevent UnicodeEncodeErrors when using pipes
+# (e.g., | grep, > file) on Windows.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # Optional debug/verbose support
 try:
     from debug import debug, verbose
@@ -48,24 +59,17 @@ except ImportError:
     debug = DummyDebug()
     verbose = DummyDebug()
 
-# -------------------------------------------------------------------------
-# UTF-8 Encoding Fix for Pipes on Windows
-# -------------------------------------------------------------------------
-# Forces UTF-8 for stdout and stderr to prevent UnicodeEncodeErrors when using pipes
-# (e.g., | grep, > file) on Windows.
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8')
-    # Optional, but recommended: Also for stderr
-    sys.stderr.reconfigure(encoding='utf-8')
-
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"}
 
 # FrontMatter regex
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# Context-dependent placeholders (page-specific, NOT replaced globally)
+# Context-dependent placeholders (replaced during template expansion)
 CONTEXT_PLACEHOLDERS = {"frontmatter", "menu", "content", "sitemap"}
+
+# Page-specific placeholders (replaced globally at the end, per-page)
+PAGE_PLACEHOLDERS = {"gallery"}
 
 # Global placeholders (same for all pages, replaced at the very end)
 GLOBAL_PLACEHOLDERS = {"timestamp"}
@@ -74,6 +78,7 @@ GLOBAL_PLACEHOLDERS = {"timestamp"}
 STANDARD_FRAGMENTS = {"header", "footer", "special"}
 
 # Combined reserved names: context + global + standard fragments
+# 'gallery' is not reserved as a custom template name
 RESERVED_TEMPLATE_NAMES = CONTEXT_PLACEHOLDERS | GLOBAL_PLACEHOLDERS | STANDARD_FRAGMENTS
 
 # Descriptions for built-in placeholders
@@ -83,6 +88,7 @@ BUILTIN_PLACEHOLDER_DESCRIPTIONS = {
     "menu": "horizontal navigation bar (•-separated)",
     "sitemap": "vertical list of all pages (with links)",
     "content": "main body content of the current page",
+    "gallery": "media gallery (rendered if media_dir or type: gallery is defined)",
     "header": "loaded from templates/header.md",
     "footer": "loaded from templates/footer.md",
     "special": "loaded from templates/special.md",
@@ -124,7 +130,7 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 def list_placeholders(config_path_arg: Optional[Path]) -> None:
     """List all available placeholders (built-in and custom)."""
     print("Built-in placeholders (available everywhere):")
-    all_builtin = sorted(CONTEXT_PLACEHOLDERS | GLOBAL_PLACEHOLDERS | STANDARD_FRAGMENTS)
+    all_builtin = sorted(CONTEXT_PLACEHOLDERS | PAGE_PLACEHOLDERS | GLOBAL_PLACEHOLDERS | STANDARD_FRAGMENTS)
     for ph in all_builtin:
         desc = BUILTIN_PLACEHOLDER_DESCRIPTIONS.get(ph, "no description")
         print(f"  {{{ph}}}{' ' * (18 - len(ph))}→ {desc}")
@@ -156,10 +162,12 @@ def list_placeholders(config_path_arg: Optional[Path]) -> None:
                 for frag_def in config["templates"]:
                     if isinstance(frag_def, dict) and len(frag_def) == 1:
                         name, filename = next(iter(frag_def.items()))
+                        if name in (RESERVED_TEMPLATE_NAMES - {"gallery"}):
+                            continue
                         custom_fragments[name] = filename
                 config_found = True
         except Exception:
-            pass  # ignore errors – just show built-in
+            pass
 
     print("\nCustom placeholders (from _config.yml):")
     if custom_fragments:
@@ -294,7 +302,7 @@ def generate_gallery_content(
     if not gallery_entries:
         return "📭 No images or supported media files found."
 
-    lines = [f"# {item['title']}\n"]
+    lines = []
     columns = item.get("columns", 1)
     show_filename = item.get("show-filename", False)
     create_link = item.get("create-link", False)
@@ -358,7 +366,7 @@ def expand_placeholders(
     if depth > 3:
         return template
 
-    # Replace CONTEXT_PLACEHOLDERS (page-specific)
+    # Replace CONTEXT_PLACEHOLDERS (during template expansion)
     for placeholder in CONTEXT_PLACEHOLDERS:
         if f"{{{placeholder}}}" in template:
             value = context.get(placeholder, "")
@@ -458,7 +466,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # Handle --list-placeholders early
     if args.list_placeholders:
         list_placeholders(args.config)
         sys.exit(0)
@@ -466,7 +473,6 @@ def main():
     if args.verbose:
         verbose.on()
 
-    # Load config
     if args.config:
         config_input = args.config
         if config_input.is_dir():
@@ -479,7 +485,6 @@ def main():
     config = load_config(config_path)
     config_dir = config_path.parent
 
-    # Determine content block
     docs_block = config.get("docs")
     nav_block = config.get("nav")
     if docs_block is not None and nav_block is not None:
@@ -494,7 +499,6 @@ def main():
     else:
         raise ValueError("❌ Config must contain 'docs' or 'nav' block.")
 
-    # Load and validate custom template fragments
     custom_fragments = {}
     if "templates" in config:
         for frag_def in config["templates"]:
@@ -512,7 +516,6 @@ def main():
                     f"   → Expected format: '- name: filename.md'"
                 )
 
-    # Resolve directories relative to config_dir
     docs_dir = resolve_path(
         str(args.docs_dir or config.get("docs_dir", config_dir)), config_dir
     )
@@ -533,7 +536,6 @@ def main():
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Template & media config
     template_config = config.get("template", {})
     global_template_file = template_config.get("template")
     media_previews = config.get("media_previews", {})
@@ -542,7 +544,6 @@ def main():
         if not template_media_dir.exists():
             print(f"⚠️  template_media_dir not found (required for media_previews): {template_media_dir}")
 
-    # Verbose output
     verbose.print("📍 Resolved paths:")
     verbose.print(f"   config_path        : {config_path}")
     verbose.print(f"   config_dir         : {config_dir}")
@@ -573,7 +574,6 @@ def main():
     warnings = 0
 
     for item in content_block:
-        # Skip pure external links (no file to generate)
         if item.get("type") == "link" and "file" not in item:
             continue
 
@@ -593,26 +593,29 @@ def main():
             warnings += 1
             template_content = "{frontmatter}\n{menu}\n{content}\n{menu}"
 
+        # ALWAYS load source file content (even for gallery)
         item_type = item.get("type")
-        if item_type not in ("sitemap", "gallery"):
-            source_file = docs_dir / file_name
-            if source_file.exists():
-                raw_content = source_file.read_text(encoding="utf-8")
-                frontmatter, body = extract_frontmatter(raw_content)
-                content = body.strip()
-            else:
+        source_file = docs_dir / file_name
+        if source_file.exists():
+            raw_content = source_file.read_text(encoding="utf-8")
+            frontmatter, body = extract_frontmatter(raw_content)
+            content = body.strip()
+        else:
+            if item_type != "gallery":
                 print(f"⚠️  MISSING SOURCE: {source_file}")
                 warnings += 1
-                frontmatter = None
-                content = f"# {item['title']}\n\n⚠️ Content not found."
-        else:
             frontmatter = None
             content = ""
 
+        # Special handling for sitemap
         if item_type == "sitemap":
             content = get_sitemap_content(content_block, get_menu_key(item))
-        elif item_type == "gallery":
-            content = generate_gallery_content(
+
+        # Generate gallery content if applicable
+        has_gallery_config = (item_type == "gallery") or ("media_dir" in item)
+        gallery_content = ""
+        if has_gallery_config:
+            gallery_content = generate_gallery_content(
                 item,
                 media_dir,
                 template_media_dir,
@@ -620,6 +623,15 @@ def main():
                 config_dir,
                 output_file,
             )
+
+        # Backward compatibility: if type=gallery and no {gallery} in content, replace entire content
+        if item_type == "gallery" and "{gallery}" not in content:
+            # Add title header only in backward-compatible mode
+            gallery_with_title = f"# {item['title']}\n\n{gallery_content}"
+            content = gallery_with_title
+        else:
+            # In flexible mode, gallery_content has no title – user controls headings
+            pass
 
         menu_str = get_menu_content(content_block, get_menu_key(item))
         sitemap_str = get_sitemap_content(content_block, get_menu_key(item))
@@ -629,6 +641,7 @@ def main():
             "menu": menu_str,
             "content": content,
             "sitemap": sitemap_str,
+            "gallery": gallery_content,  # Always provide it
         }
 
         final_content = expand_placeholders(
@@ -640,7 +653,14 @@ def main():
             custom_fragments
         )
 
-        # 🔥 FINAL STEP: Replace GLOBAL placeholders everywhere
+        # 🔥 FINAL STEP 1: Replace page-specific placeholders (like {gallery})
+        for ph in PAGE_PLACEHOLDERS:
+            placeholder_str = f"{{{ph}}}"
+            if placeholder_str in final_content:
+                value = context.get(ph, "")
+                final_content = final_content.replace(placeholder_str, value)
+
+        # 🔥 FINAL STEP 2: Replace global placeholders (like {timestamp})
         for ph in GLOBAL_PLACEHOLDERS:
             placeholder_str = f"{{{ph}}}"
             if placeholder_str in final_content:
@@ -650,7 +670,6 @@ def main():
                     value = ""
                 final_content = final_content.replace(placeholder_str, value)
 
-        # Output
         try:
             display_out = output_file.relative_to(Path.cwd())
         except ValueError:
