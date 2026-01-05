@@ -537,7 +537,7 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
 
     template_config = config.get("template", {})
-    global_template_file = template_config.get("template")
+    global_template_file = config.get("template")
     media_previews = config.get("media_previews", {})
 
     if media_previews and not args.dry_run:
