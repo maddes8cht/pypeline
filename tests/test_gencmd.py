@@ -55,6 +55,21 @@ class TestExtractPythonAndScriptPathsAndEnv:
         ):
             extract_python_and_script_paths_and_env(str(f))
 
+    def test_non_quoted_format(self, tmp_path):
+        from gencmd import extract_python_and_script_paths_and_env
+        f = tmp_path / "nonquoted.cmd"
+        f.write_text(
+            ':: cmd  : test.py\n'
+            ':: env  : default\n'
+            '@echo off\n'
+            'python C:\\scripts\\test.py %*\n',
+            encoding="utf-8"
+        )
+        interp, script, env = extract_python_and_script_paths_and_env(str(f))
+        assert interp == "python"
+        assert script == "C:\\scripts\\test.py"
+        assert env is None
+
 
 class TestGetPythonInterpreterForCondaEnv:
     def test_valid_conda_env(self):
@@ -174,4 +189,20 @@ class TestMain:
             pytest.raises(SystemExit),
         ):
             mock_run.return_value = MagicMock(stdout="help text\n", returncode=0)
+            main()
+
+    def test_update_mode_missing_script_exits(self, tmp_path):
+        from gencmd import main
+        cmd_file = tmp_path / "bad_ref.cmd"
+        cmd_file.write_text(
+            ':: cmd  : missing_script.py\n'
+            ':: env  : default\n'
+            '@echo off\n'
+            '"python" "C:\\nonexistent\\script.py" %*\n',
+            encoding="utf-8"
+        )
+        with (
+            patch("sys.argv", ["gencmd.py", "--update", str(cmd_file)]),
+            pytest.raises(SystemExit),
+        ):
             main()
