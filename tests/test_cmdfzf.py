@@ -62,3 +62,126 @@ class TestGetUserEditedCommand:
         with patch("builtins.input", side_effect=KeyboardInterrupt):
             result = cmdfzf.get_user_edited_command("myscript")
         assert result is None
+
+
+class TestShowPreview:
+    def test_none_selected_does_nothing(self):
+        with patch("builtins.print") as mock_print:
+            cmdfzf.show_preview(None)
+        mock_print.assert_not_called()
+
+    def test_success_prints_stdout(self):
+        mock_result = MagicMock()
+        mock_result.stdout = "preview content"
+        mock_result.stderr = ""
+        with patch("subprocess.run", return_value=mock_result):
+            with patch("builtins.print") as mock_print:
+                cmdfzf.show_preview("myscript")
+        mock_print.assert_any_call("preview content")
+
+    def test_stderr_printed_as_error(self):
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.stderr = "something went wrong"
+        with patch("subprocess.run", return_value=mock_result):
+            with patch("builtins.print") as mock_print:
+                cmdfzf.show_preview("myscript")
+        mock_print.assert_any_call("Preview error: something went wrong", file=sys.stderr)
+
+
+class TestExecuteCommand:
+    def test_empty_cmd_does_nothing(self):
+        with patch("builtins.print") as mock_print:
+            cmdfzf.execute_command("")
+        mock_print.assert_not_called()
+
+    def test_none_cmd_does_nothing(self):
+        with patch("builtins.print") as mock_print:
+            cmdfzf.execute_command(None)
+        mock_print.assert_not_called()
+
+    def test_success_runs_command(self):
+        with patch("subprocess.run") as mock_run:
+            cmdfzf.execute_command("myscript.cmd --help")
+        mock_run.assert_called_once_with("myscript.cmd --help", shell=True, check=True)
+
+    def test_called_process_error(self):
+        with patch("subprocess.run", side_effect=__import__("subprocess").CalledProcessError(1, "cmd")):
+            with patch("builtins.print") as mock_print:
+                cmdfzf.execute_command("bad.cmd")
+        assert any("Error executing command" in str(c) for c in mock_print.call_args_list)
+
+
+class TestMain:
+    def test_default_flow(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=["foo", "bar"]),
+            patch.object(cmdfzf, "run_fzf_with_preview", return_value="foo"),
+            patch.object(cmdfzf, "get_user_edited_command", return_value="foo.cmd"),
+            patch.object(cmdfzf, "execute_command") as mock_exec,
+        ):
+            cmdfzf.main()
+        mock_exec.assert_called_once_with("foo.cmd")
+
+    def test_no_cmd_files_exits(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            cmdfzf.main()
+
+    def test_selection_cancelled_exits(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=["foo"]),
+            patch.object(cmdfzf, "run_fzf_with_preview", return_value=None),
+            pytest.raises(SystemExit),
+        ):
+            cmdfzf.main()
+
+    def test_preview_boundary_values_valid(self):
+        for val in ["1", "50", "100"]:
+            with (
+                patch("sys.argv", ["cmdfzf.py", "--preview", val]),
+                patch.object(cmdfzf, "get_cmd_files", return_value=["foo"]),
+                patch.object(cmdfzf, "run_fzf_with_preview", return_value="foo"),
+                patch.object(cmdfzf, "get_user_edited_command", return_value="foo.cmd"),
+                patch.object(cmdfzf, "execute_command"),
+            ):
+                cmdfzf.main()
+
+    def test_preview_out_of_range_exits(self):
+        for val in ["0", "101", "150"]:
+            with (
+                patch("sys.argv", ["cmdfzf.py", "--preview", val]),
+                pytest.raises(SystemExit),
+            ):
+                cmdfzf.main()
+
+    def test_keep_flag_passed_through(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py", "--keep"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=["foo"]),
+            patch.object(cmdfzf, "run_fzf_with_preview",
+                         return_value="foo") as mock_fzf,
+            patch.object(cmdfzf, "get_user_edited_command", return_value="foo.cmd"),
+            patch.object(cmdfzf, "execute_command"),
+        ):
+            cmdfzf.main()
+        mock_fzf.assert_called_once()
+        assert mock_fzf.call_args.kwargs["keep"] is True
+
+    def test_cmddir_passed_through(self):
+        custom_dir = "C:\\custom\\dir"
+        with (
+            patch("sys.argv", ["cmdfzf.py", "--cmddir", custom_dir]),
+            patch.object(cmdfzf, "get_cmd_files",
+                         return_value=["foo"]) as mock_get,
+            patch.object(cmdfzf, "run_fzf_with_preview", return_value="foo"),
+            patch.object(cmdfzf, "get_user_edited_command", return_value="foo.cmd"),
+            patch.object(cmdfzf, "execute_command"),
+        ):
+            cmdfzf.main()
+        mock_get.assert_called_once_with(custom_dir)

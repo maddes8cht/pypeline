@@ -204,7 +204,8 @@ class TestGenerateGalleryContent:
         result = generate_gallery_content(
             {"columns": 2, "show-filename": True}, media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
         )
-        assert "*" in result
+        assert "img0.jpg" in result
+        assert "img1.jpg" in result
 
     def test_multi_column_uneven_rows(self, tmp_path):
         from markcms import generate_gallery_content
@@ -228,7 +229,7 @@ class TestGenerateGalleryContent:
         result = generate_gallery_content(
             {"columns": 2, "create-link": True}, media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
         )
-        assert "](" in result
+        assert "[![" in result
 
 
 class TestExpandPlaceholders:

@@ -113,3 +113,87 @@ class TestListCmdFiles:
             list_cmd_files(str(tmp_path))
         calls = [c for c in mock_print.call_args_list if "Error reading" in str(c) and "bad.cmd" in str(c)]
         assert len(calls) > 0, f"Expected error call not found in {mock_print.call_args_list}"
+
+
+class TestMain:
+    def test_default(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        (tmp_path / "bar.cmd").write_text("@echo off\n", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            buf = []
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "foo" in output
+        assert "bar" in output
+
+    def test_bare_hides_comments(self, tmp_path):
+        (tmp_path / "test.cmd").write_text(":: comment\n@echo off\n", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "--bare", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            buf = []
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "test" in output
+        assert "comment" not in output
+
+    def test_cmdonly_shows_only_cmd(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        (tmp_path / "bar.exe").write_text("MZ", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "--cmdonly", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            buf = []
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "foo" in output
+        assert "bar" not in output
+
+    def test_exeonly_shows_only_exe(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        (tmp_path / "bar.exe").write_text("MZ", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "--exeonly", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            buf = []
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "bar" in output
+        assert "foo" not in output
+
+    def test_bat_flag_uses_bat(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "--bat", "foo", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            with patch("subprocess.run") as mock_run:
+                main()
+        mock_run.assert_called_once()
+        assert mock_run.call_args[0][0][0] == "bat"
+
+    def test_pattern_filters_output(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        (tmp_path / "foobar.cmd").write_text("@echo off\n", encoding="utf-8")
+        (tmp_path / "other.cmd").write_text("@echo off\n", encoding="utf-8")
+        with (
+            patch("sys.argv", ["cmdlist.py", "foo", "--cmddir", str(tmp_path)]),
+        ):
+            from cmdlist import main
+            buf = []
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "foo" in output
+        assert "foobar" in output
+        assert "other" not in output
