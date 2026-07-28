@@ -111,6 +111,24 @@ class TestGetPythonInterpreterForCondaEnv:
 
 
 class TestMain:
+    def test_create_mode_ask_with_directory_arg_opens_dialog(self, tmp_path):
+        from gencmd import main
+        script_dir = tmp_path / "scripts"
+        script_dir.mkdir()
+        sample_script = script_dir / "myscript.py"
+        sample_script.write_text('print("hello")', encoding="utf-8")
+        with (
+            patch("sys.argv", ["gencmd.py", str(tmp_path), "--ask"]),
+            patch("gencmd.select_python_script", return_value=str(sample_script)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout="usage: script [--help]\n", returncode=0)
+            main()
+        expected_cmd = tmp_path / "myscript.cmd"
+        assert expected_cmd.exists()
+        content = expected_cmd.read_text(encoding="utf-8")
+        assert "myscript" in content
+
     def test_create_mode_default(self, tmp_path, sample_script_file):
         from gencmd import main
         with (

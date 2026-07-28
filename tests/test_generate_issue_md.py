@@ -123,6 +123,42 @@ class TestGetIssues:
             issues = get_issues(state="open")
         assert issues == []
 
+    def test_verbose_prints_progress_message(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(SAMPLE_ISSUES)
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("builtins.print") as mock_print,
+        ):
+            issues = get_issues(repo="user/repo", state="open", verbose=True)
+        assert len(issues) == 2
+        mock_print.assert_any_call("Fetching open issues from user/repo...", file=sys.stderr)
+
+    def test_verbose_current_repo_message(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(SAMPLE_ISSUES)
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("builtins.print") as mock_print,
+        ):
+            issues = get_issues(state="all", verbose=True)
+        assert len(issues) == 2
+        mock_print.assert_any_call("Fetching all issues from current repository...", file=sys.stderr)
+
+    def test_verbose_json_failure_prints_error(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "not json"
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("builtins.print") as mock_print,
+        ):
+            issues = get_issues(state="open", verbose=True)
+        assert issues == []
+        mock_print.assert_any_call("Failed to parse issues JSON.", file=sys.stderr)
+
 
 class TestGetIssueDetails:
     def test_success(self):
@@ -156,6 +192,45 @@ class TestGetIssueDetails:
         assert issue_data is None
         assert comments is None
 
+    def test_verbose_prints_fetch_messages(self):
+        mock_issue = MagicMock(returncode=0, stdout=json.dumps(SAMPLE_ISSUE_DETAIL))
+        mock_comments = MagicMock(returncode=0, stdout=json.dumps(SAMPLE_COMMENTS))
+        with (
+            patch("subprocess.run", side_effect=[
+                MagicMock(returncode=0, stdout="user/repo\n"),
+                mock_issue,
+                mock_comments,
+            ]),
+            patch("builtins.print") as mock_print,
+        ):
+            issue_data, comments = get_issue_details(1, verbose=True)
+        assert issue_data is not None
+        mock_print.assert_any_call("Fetching details for issue #1...", file=sys.stderr)
+        mock_print.assert_any_call("Fetching comments for issue #1...", file=sys.stderr)
+
+    def test_verbose_repo_view_failure_prints_message(self):
+        with (
+            patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="no repo")),
+            patch("builtins.print") as mock_print,
+        ):
+            issue_data, comments = get_issue_details(1, verbose=True)
+        assert issue_data is None
+        mock_print.assert_any_call("Failed to determine current repository.", file=sys.stderr)
+
+    def test_comments_fetch_failure_returns_empty_list(self):
+        mock_issue = MagicMock(returncode=0, stdout=json.dumps(SAMPLE_ISSUE_DETAIL))
+        mock_comments = MagicMock(returncode=1, stderr="timeout")
+        with (
+            patch("subprocess.run", side_effect=[
+                MagicMock(returncode=0, stdout="user/repo\n"),
+                mock_issue,
+                mock_comments,
+            ]),
+        ):
+            issue_data, comments = get_issue_details(1)
+        assert issue_data is not None
+        assert comments == []
+
 
 class TestBuildMarkdown:
     def test_basic_output(self):
@@ -187,6 +262,50 @@ class TestBuildMarkdown:
     def test_top_link_style_text(self):
         result = build_markdown(SAMPLE_ISSUES, top_link_style="text")
         assert "Back to top" in result
+
+    def test_comment_empty_body(self):
+        comments = [{"user": {"login": "bob"}, "created_at": "2024-01-02T00:00:00Z", "body": ""}]
+        detail = {**MOCK_ISSUE_DETAIL}
+        with patch("generate_issue_md.get_issue_details", return_value=(detail, comments)):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        assert "**Comments:**" in result
+        assert "- *bob* at" in result
+
+    def test_comment_newlines_only_body(self):
+        comments = [{"user": {"login": "bob"}, "created_at": "2024-01-02T00:00:00Z", "body": "\n\n\n"}]
+        detail = {**MOCK_ISSUE_DETAIL}
+        with patch("generate_issue_md.get_issue_details", return_value=(detail, comments)):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        lines = [l for l in result.split("\n") if l.strip()]
+        blockquote_lines = [l for l in lines if l.strip().startswith(">")]
+        assert len(blockquote_lines) >= 3
+
+    def test_comment_markdown_body_renders_as_blockquote(self):
+        md_body = "**bold** *italic* `code`"
+        comments = [{"user": {"login": "alice"}, "created_at": "2024-01-02T00:00:00Z", "body": md_body}]
+        detail = {**MOCK_ISSUE_DETAIL}
+        with patch("generate_issue_md.get_issue_details", return_value=(detail, comments)):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        assert "  > **bold** *italic* `code`" in result
+
+    def test_no_comments_omits_section(self):
+        detail = {**MOCK_ISSUE_DETAIL}
+        with patch("generate_issue_md.get_issue_details", return_value=(detail, [])):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        assert "**Comments:**" not in result
+
+    def test_fetch_failure_shows_error_message(self):
+        with patch("generate_issue_md.get_issue_details", return_value=(None, None)):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        assert "_Failed to fetch issue details._" in result
+
+    def test_multiline_comment_indents_all_lines(self):
+        multiline = "line1\nline2\nline3"
+        comments = [{"user": {"login": "bob"}, "created_at": "2024-01-02T00:00:00Z", "body": multiline}]
+        detail = {**MOCK_ISSUE_DETAIL}
+        with patch("generate_issue_md.get_issue_details", return_value=(detail, comments)):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        assert "  > line1\n  > line2\n  > line3" in result
 
 
 class TestListAssignees:

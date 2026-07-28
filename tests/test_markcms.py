@@ -231,6 +231,35 @@ class TestGenerateGalleryContent:
         )
         assert "[![" in result
 
+    def test_single_column_create_link_false_no_wrapping(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1, "create-link": False}, media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert "photo.jpg" in result
+        assert "[![" not in result
+
+    def test_preview_map_missing_file_skipped_silently(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        template_media = tmp_path / "media-icons"
+        template_media.mkdir()
+        (template_media / "video_thumb.jpg").write_text("fake")
+        (media_dir / "video.mp4").write_text("fake")
+        (media_dir / "image.jpg").write_text("fake")
+        preview_map = {"mp4": "video_thumb.jpg", "pdf": "missing_thumb.jpg"}
+        (media_dir / "doc.pdf").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1}, media_dir, template_media, preview_map, tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert "video_thumb.jpg" in result
+        assert "image.jpg" in result
+        assert "missing_thumb.jpg" not in result
+
 
 class TestExpandPlaceholders:
     def test_context_placeholder_replaced(self, tmp_path):
@@ -513,6 +542,93 @@ class TestListPlaceholders:
         output = "\n".join(buf)
         assert "my_fragment" in output
         assert "templates/my_frag.md" in output
+
+
+class TestExpandPlaceholdersAllTypes:
+    def test_context_page_and_global_placeholders_all_replaced(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        templates_dir = config_dir / "templates"
+        templates_dir.mkdir()
+        media_dir = config_dir / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "media_dir: media\n"
+            "template: default.md\n"
+            "docs:\n"
+            "  - title: Home\n"
+            "    file: index.md\n"
+            "    media_dir: media\n",
+            encoding="utf-8"
+        )
+        (docs_dir / "index.md").write_text(
+            "---\ntitle: Home\n---\n# Welcome\n",
+            encoding="utf-8"
+        )
+        (templates_dir / "default.md").write_text(
+            "{frontmatter}\n{menu}\nContent: {content}\nGallery: {gallery}\nGenerated: {timestamp}\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with patch("sys.argv", ["markcms.py", "--config", str(config_dir)]):
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output_file = config_dir / "out" / "index.md"
+        content = output_file.read_text(encoding="utf-8")
+        assert "title: Home" in content
+        assert "Content: # Welcome" in content
+        assert "Gallery: ![photo.jpg]" in content
+        assert "Generated:" in content
+        import re
+        assert re.search(r"Generated: \d{4}-\d{2}-\d{2}", content)
+
+    def test_gallery_placeholder_in_flexible_mode_no_duplicate_title(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site2"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        templates_dir = config_dir / "templates"
+        templates_dir.mkdir()
+        media_dir = config_dir / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "media_dir: media\n"
+            "template: default.md\n"
+            "docs:\n"
+            "  - title: Gallery Page\n"
+            "    file: gallery.md\n"
+            "    type: gallery\n"
+            "    columns: 1\n",
+            encoding="utf-8"
+        )
+        (docs_dir / "gallery.md").write_text(
+            "# Custom Title\n\n{gallery}\n\nMore text here.\n",
+            encoding="utf-8"
+        )
+        (templates_dir / "default.md").write_text("{content}\n", encoding="utf-8")
+        with patch("sys.argv", ["markcms.py", "--config", str(config_dir)]):
+            main()
+        output_file = config_dir / "out" / "gallery.md"
+        content = output_file.read_text(encoding="utf-8")
+        assert "# Custom Title" in content
+        assert "More text here." in content
+        assert "photo.jpg" in content
+        assert content.count("# Custom Title") == 1
 
 
 class TestMainFullFlow:
