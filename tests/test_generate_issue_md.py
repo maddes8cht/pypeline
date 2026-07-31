@@ -44,6 +44,13 @@ SAMPLE_COMMENTS = [
 ]
 
 
+MOCK_ISSUE_DETAIL = {
+    "state": "open", "created_at": "2024-01-01T00:00:00Z",
+    "user": {"login": "alice"}, "body": "body",
+    "milestone": {"title": "v1.0"}, "assignees": [{"login": "alice"}],
+}
+
+
 class TestGithubAnchor:
     def test_basic(self):
         assert github_anchor("Hello World") == "hello-world"
@@ -234,33 +241,40 @@ class TestGetIssueDetails:
 
 class TestBuildMarkdown:
     def test_basic_output(self):
-        result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
         assert "# GitHub Issues for user/repo" in result
         assert "# Issue #1: Fix bug" in result
         assert "## Overview" in result
 
     def test_with_color(self):
-        result = build_markdown(SAMPLE_ISSUES, color=True)
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, color=True)
         assert "🟢" in result or "🔴" in result
 
     def test_no_milestone(self):
-        result = build_markdown(SAMPLE_ISSUES, include_milestone=False)
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, include_milestone=False)
         assert "Milestone" not in result
 
     def test_include_assignee(self):
-        result = build_markdown(SAMPLE_ISSUES, include_assignee=True)
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, include_assignee=True)
         assert "Assignee(s)" in result
 
     def test_top_link_style_none(self):
-        result = build_markdown(SAMPLE_ISSUES, top_link_style="none")
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, top_link_style="none")
         assert "Back to top" not in result
 
     def test_top_link_style_icon(self):
-        result = build_markdown(SAMPLE_ISSUES, top_link_style="icon")
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, top_link_style="icon")
         assert "⬆️" in result
 
     def test_top_link_style_text(self):
-        result = build_markdown(SAMPLE_ISSUES, top_link_style="text")
+        with patch("generate_issue_md.get_issue_details", return_value=(MOCK_ISSUE_DETAIL, [])):
+            result = build_markdown(SAMPLE_ISSUES, top_link_style="text")
         assert "Back to top" in result
 
     def test_comment_empty_body(self):
@@ -371,13 +385,6 @@ class TestListMilestones:
         with patch("builtins.print") as mock_print, pytest.raises(SystemExit):
             list_milestones(issues)
         mock_print.assert_called_once_with("v1.0")
-
-
-MOCK_ISSUE_DETAIL = {
-    "state": "open", "created_at": "2024-01-01T00:00:00Z",
-    "user": {"login": "alice"}, "body": "body",
-    "milestone": {"title": "v1.0"}, "assignees": [{"login": "alice"}],
-}
 
 
 class TestWriteMarkdown:

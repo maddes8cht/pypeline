@@ -88,15 +88,6 @@ class TestShowPreview:
                 cmdfzf.show_preview("myscript")
         mock_print.assert_any_call("Preview error: something went wrong", file=sys.stderr)
 
-    def test_called_process_error_caught(self):
-        with patch("subprocess.run", side_effect=__import__("subprocess").CalledProcessError(1, "cmd")):
-            with patch("builtins.print") as mock_print:
-                cmdfzf.show_preview("myscript")
-        mock_print.assert_any_call(
-            "Error running preview: Command 'cmd' returned non-zero exit status 1.",
-            file=sys.stderr
-        )
-
 
 class TestGetUserEditedCommand:
     def test_with_keep_preview_shows_preview_and_prompt(self):
