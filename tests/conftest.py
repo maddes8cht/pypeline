@@ -1,15 +1,4 @@
-import os
-import sys
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 import pytest
-
-
-@pytest.fixture
-def tmp_script_dir(tmp_path):
-    src_dir = Path(__file__).resolve().parent.parent / "src"
-    return src_dir
 
 
 @pytest.fixture

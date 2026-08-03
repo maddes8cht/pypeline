@@ -60,20 +60,17 @@ def show_preview(selected_cmd, cmddir=CMDDIR):
     """Run cmdlist.py --cmdonly to show the preview of the selected command."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if selected_cmd:
-        try:
-            result = subprocess.run(
-                f"python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {selected_cmd}",
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(f"Preview error: {result.stderr}", file=sys.stderr)
-        except subprocess.CalledProcessError as e:
-            print(f"Error running preview: {e}", file=sys.stderr)
+        result = subprocess.run(
+            f"python {os.path.join(script_dir, 'cmdlist.py')} --cmdonly {selected_cmd}",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(f"Preview error: {result.stderr}", file=sys.stderr)
 
 def get_user_edited_command(selected_cmd, keep_preview=False, cmddir=CMDDIR):
     """Prompt the user to add arguments and confirm execution in the terminal."""

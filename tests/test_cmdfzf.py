@@ -89,6 +89,19 @@ class TestShowPreview:
         mock_print.assert_any_call("Preview error: something went wrong", file=sys.stderr)
 
 
+class TestGetUserEditedCommand:
+    def test_with_keep_preview_shows_preview_and_prompt(self):
+        with (
+            patch("builtins.input", return_value=""),
+            patch("builtins.print") as mock_print,
+        ):
+            with patch.object(cmdfzf, "show_preview") as mock_show:
+                result = cmdfzf.get_user_edited_command("myscript", keep_preview=True)
+        assert result == "myscript.cmd"
+        mock_show.assert_called_once_with("myscript", cmdfzf.CMDDIR)
+        mock_print.assert_any_call("  -- Press [Enter] to continue or [Ctrl+C] to cancel --")
+
+
 class TestExecuteCommand:
     def test_empty_cmd_does_nothing(self):
         with patch("builtins.print") as mock_print:
