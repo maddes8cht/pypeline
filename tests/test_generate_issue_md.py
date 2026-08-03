@@ -290,9 +290,9 @@ class TestBuildMarkdown:
         detail = {**MOCK_ISSUE_DETAIL}
         with patch("generate_issue_md.get_issue_details", return_value=(detail, comments)):
             result = build_markdown(SAMPLE_ISSUES, repo="user/repo")
-        lines = [l for l in result.split("\n") if l.strip()]
-        blockquote_lines = [l for l in lines if l.strip().startswith(">")]
-        assert len(blockquote_lines) >= 3
+        blockquote_lines = [l.strip() for l in result.split("\n") if l.strip().startswith(">")]
+        expected = [">"] * (len(SAMPLE_ISSUES) * len(comments[0]["body"].splitlines()))
+        assert blockquote_lines == expected
 
     def test_comment_markdown_body_renders_as_blockquote(self):
         md_body = "**bold** *italic* `code`"

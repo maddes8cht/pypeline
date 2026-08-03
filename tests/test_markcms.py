@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pytest
@@ -588,7 +589,6 @@ class TestExpandPlaceholdersAllTypes:
         assert "Content: # Welcome" in content
         assert "Gallery: ![photo.jpg]" in content
         assert "Generated:" in content
-        import re
         assert re.search(r"Generated: \d{4}-\d{2}-\d{2}", content)
 
     def test_gallery_placeholder_in_flexible_mode_no_duplicate_title(self, tmp_path):
