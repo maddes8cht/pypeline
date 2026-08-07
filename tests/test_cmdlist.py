@@ -94,6 +94,28 @@ class TestListCmdFiles:
         output = "\n".join(buf)
         assert output.strip() == ""
 
+    def test_empty_comment_line_prints_blank(self, tmp_path):
+        from cmdlist import list_cmd_files
+        content = ":: cmd  : foo\n::\n:: help text\n@echo off\n"
+        (tmp_path / "foo.cmd").write_text(content, encoding="utf-8")
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_cmd_files(str(tmp_path))
+        assert buf[0] == "foo"
+        assert any("cmd  : foo" in b for b in buf)
+        assert "" in buf               # empty comment line -> print()
+        assert any("help text" in b for b in buf)
+
+    def test_blank_line_comment_in_middle(self, tmp_path):
+        from cmdlist import list_cmd_files
+        content = ":: first\n::\n::second without space\n@echo off\n"
+        (tmp_path / "a.cmd").write_text(content, encoding="utf-8")
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_cmd_files(str(tmp_path))
+        assert "" in buf
+        assert any("second without space" in b for b in buf)
+
     def test_file_read_error_prints_message(self, tmp_path):
         from cmdlist import list_cmd_files
         import builtins

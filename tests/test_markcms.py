@@ -262,6 +262,60 @@ class TestGenerateGalleryContent:
         assert "missing_thumb.jpg" not in result
 
 
+class TestGenerateGallerySingleColumn:
+    def test_create_link_wraps_image(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1, "create-link": True}, media_dir, tmp_path, {},
+            tmp_path, tmp_path / "out" / "index.md",
+        )
+        result = result.replace("\\", "/")
+        assert result.startswith("[![photo.jpg](..")
+        assert "](../media/photo.jpg)" in result
+
+    def test_show_filename_renders_italic_name_line(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1, "show-filename": True}, media_dir, tmp_path, {},
+            tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert "*photo.jpg*" in result
+        assert "[![" not in result
+        assert result.split("\n")[0].startswith("![photo.jpg]")
+
+    def test_create_link_with_show_filename_combines(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1, "create-link": True, "show-filename": True},
+            media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
+        )
+        result = result.replace("\\", "/")
+        assert result.startswith("[![photo.jpg](../media/photo.jpg)](../media/photo.jpg)")
+        assert "*photo.jpg*" in result
+
+    def test_no_create_link_no_wrap_and_no_filename(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1}, media_dir, tmp_path, {},
+            tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert result.startswith("![photo.jpg]")
+        assert "[![" not in result
+        assert "*" not in result
+
+
 class TestExpandPlaceholders:
     def test_context_placeholder_replaced(self, tmp_path):
         from markcms import expand_placeholders
@@ -440,6 +494,68 @@ class TestMain:
         assert "# Gallery Page" in content
         assert "photo.jpg" in content
         assert "Some initial content" not in content
+
+    def test_nav_block_only_prints_deprecation_warning(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "nav:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--dry-run"]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            main()
+        output = "\n".join(buf)
+        assert "'nav' block is deprecated" in output
+        assert "index.md" in output
+
+    @pytest.mark.xfail(
+        reason="BUG in markcms.py: a docs entry without 'file' is warned and skipped, "
+        "but get_menu_content()/get_sitemap_content() (lines 217/234) then raise "
+        "KeyError: 'file' while rendering the menu for the remaining items. "
+        "Fix would be to skip/guard malformed items in menu generation.",
+    )
+    def test_missing_file_item_warns_and_continues(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "docs:\n"
+            "  - title: Home\n    file: index.md\n"
+            "  - title: NoFileHere\n"
+            "  - title: External Link\n    type: link\n    link: https://example.com\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--dry-run"]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            main()
+        output = "\n".join(buf)
+        assert "Missing 'file' in item: NoFileHere" in output
+        assert "index.md" in output
+        assert "1 warning(s)" in output
 
 
 class TestIsSubpath:

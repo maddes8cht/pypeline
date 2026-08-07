@@ -198,3 +198,28 @@ class TestMain:
         ):
             cmdfzf.main()
         mock_get.assert_called_once_with(custom_dir)
+
+    def test_edited_cmd_none_exits(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=["foo"]),
+            patch.object(cmdfzf, "run_fzf_with_preview", return_value="foo"),
+            patch.object(cmdfzf, "get_user_edited_command", return_value=None),
+            patch("builtins.print") as mock_print,
+            pytest.raises(SystemExit) as exc,
+        ):
+            cmdfzf.main()
+        assert exc.value.code == 1
+        assert any("Command execution cancelled" in str(c) for c in mock_print.call_args_list)
+
+    def test_edited_cmd_empty_string_exits(self):
+        with (
+            patch("sys.argv", ["cmdfzf.py"]),
+            patch.object(cmdfzf, "get_cmd_files", return_value=["foo"]),
+            patch.object(cmdfzf, "run_fzf_with_preview", return_value="foo"),
+            patch.object(cmdfzf, "get_user_edited_command", return_value=""),
+            patch.object(cmdfzf, "execute_command") as mock_exec,
+            pytest.raises(SystemExit),
+        ):
+            cmdfzf.main()
+        mock_exec.assert_not_called()

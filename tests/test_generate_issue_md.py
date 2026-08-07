@@ -479,3 +479,41 @@ class TestMain:
     def test_color_and_top_link_style(self, mock_get_issues):
         with patch("builtins.print"):
             assert main() == 0
+
+    @patch("sys.argv", ["generate-issue-md.py", "--dry-run", "--verbose"])
+    @patch("generate_issue_md.get_issues", return_value=SAMPLE_ISSUES)
+    def test_dry_run_verbose_prints_full_markdown(self, mock_get_issues):
+        buf = []
+        with (
+            patch("generate_issue_md.get_issue_details",
+                  return_value=(MOCK_ISSUE_DETAIL, [])),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            assert main() == 0
+        output = "\n".join(buf)
+        assert "# GitHub Issues for current repository" in output
+        assert "## Overview" in output
+        assert "# Issue #1: Fix bug" in output
+        assert "**Body:**" in output
+
+    @patch("generate_issue_md.get_issues", return_value=SAMPLE_ISSUES * 3)
+    def test_many_issues_prints_progress_message(self, mock_get_issues, tmp_path):
+        out = tmp_path / "ISSUES.md"
+        buf = []
+        with (
+            patch("sys.argv", ["generate-issue-md.py", "--filename", str(out)]),
+            patch("generate_issue_md.get_issue_details",
+                  return_value=(MOCK_ISSUE_DETAIL, [])),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            assert main() == 0
+        calls = "\n".join(buf)
+        assert "Writing 6 issues to" in calls
+        assert out.exists()
+
+    def test_keyboard_interrupt_handler_exits_130(self):
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        patched = source.replace("def main():", "def main():\n    raise KeyboardInterrupt", 1)
+        with pytest.raises(SystemExit) as exc:
+            exec(compile(patched, "generate_issue_md_cli", "exec"), {"__name__": "__main__", "__file__": str(MODULE_PATH)})
+        assert exc.value.code == 130

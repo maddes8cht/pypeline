@@ -3,6 +3,12 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pytest
 
+from gencmd import (
+    select_python_script,
+    select_cmd_file,
+    select_output_directory,
+)
+
 
 class TestExtractPythonAndScriptPathsAndEnv:
     def test_valid_cmd_file(self, sample_cmd_file):
@@ -224,3 +230,135 @@ class TestMain:
             pytest.raises(SystemExit),
         ):
             main()
+
+
+class TestSelectFunctions:
+    def test_select_python_script_returns_path(self):
+        with (
+            patch("tkinter.Tk") as mock_tk,
+            patch("gencmd.filedialog.askopenfilename", return_value="C:\\scripts\\my.py"),
+        ):
+            result = select_python_script()
+        assert result == "C:\\scripts\\my.py"
+        mock_tk.return_value.withdraw.assert_called_once()
+        mock_tk.return_value.destroy.assert_called_once()
+
+    def test_select_cmd_file_passes_expected_options(self):
+        with (
+            patch("tkinter.Tk"),
+            patch("gencmd.filedialog.askopenfilename", return_value="C:\\scripts\\x.cmd") as mock_dlg,
+        ):
+            result = select_cmd_file()
+        assert result == "C:\\scripts\\x.cmd"
+        assert mock_dlg.call_args.kwargs["title"] == "Select .cmd File to Update"
+        assert mock_dlg.call_args.kwargs["filetypes"][0] == ("Command Files", "*.cmd")
+        assert mock_dlg.call_args.kwargs["initialdir"]
+
+    def test_select_output_directory_returns_dir(self):
+        with (
+            patch("tkinter.Tk"),
+            patch("gencmd.filedialog.askdirectory", return_value="C:\\out") as mock_dlg,
+        ):
+            result = select_output_directory()
+        assert result == "C:\\out"
+        assert mock_dlg.call_args.kwargs["title"] == "Select Output Directory"
+        assert mock_dlg.call_args.kwargs["mustexist"] is True
+
+    @pytest.mark.parametrize(
+        "func,attr",
+        [
+            (select_python_script, "askopenfilename"),
+            (select_cmd_file, "askopenfilename"),
+            (select_output_directory, "askdirectory"),
+        ],
+    )
+    def test_cancel_returns_none(self, func, attr):
+        with (
+            patch("tkinter.Tk"),
+            patch(f"gencmd.filedialog.{attr}", return_value=""),
+        ):
+            assert func() is None
+
+    def test_select_python_script_raises_on_dialog_failure(self):
+        with (
+            patch("tkinter.Tk"),
+            patch("gencmd.filedialog.askopenfilename", side_effect=Exception("no display")),
+            pytest.raises(Exception),
+        ):
+            select_python_script()
+
+
+class TestMainDialogsAndEnv:
+    def test_create_mode_ask_uses_directory_dialog(self, tmp_path, sample_script_file):
+        from gencmd import main
+        out_dir = tmp_path / "chosen"
+        out_dir.mkdir()
+        with (
+            patch("sys.argv", ["gencmd.py", str(sample_script_file), "--ask"]),
+            patch("gencmd.select_output_directory", return_value=str(out_dir)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout="usage: script\n", returncode=0)
+            main()
+        assert (out_dir / "myscript.cmd").exists()
+
+    def test_create_mode_ask_with_empty_dialog_exits(self, tmp_path, sample_script_file):
+        from gencmd import main
+        with (
+            patch("sys.argv", ["gencmd.py", str(sample_script_file), "--ask"]),
+            patch("gencmd.select_output_directory", return_value=None),
+            pytest.raises(SystemExit),
+        ):
+            main()
+
+    def test_create_mode_directory_argument_uses_script_dialog(self, tmp_path):
+        from gencmd import main
+        out_dir = tmp_path / "outdir"
+        out_dir.mkdir()
+        sample_script = tmp_path / "dialog_script.py"
+        sample_script.write_text('print("hi")', encoding="utf-8")
+        with (
+            patch("sys.argv", ["gencmd.py", str(out_dir)]),
+            patch("gencmd.select_python_script", return_value=str(sample_script)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout="usage: script\n", returncode=0)
+            main()
+        assert (out_dir / "dialog_script.cmd").exists()
+
+    def test_update_mode_keeps_old_env_name(self, sample_cmd_file_with_env):
+        from gencmd import main
+        with (
+            patch("sys.argv", ["gencmd.py", "--update", str(sample_cmd_file_with_env)]),
+            patch("subprocess.run") as mock_run,
+            patch("os.path.isfile", return_value=True),
+        ):
+            mock_run.return_value = MagicMock(stdout="usage: script\n", returncode=0)
+            main()
+        content = sample_cmd_file_with_env.read_text(encoding="utf-8")
+        assert ":: env  : myenv" in content
+
+    def test_update_mode_with_explicit_env_overrides_old_env_name(self, sample_cmd_file_with_env):
+        from gencmd import main
+        mock_conda_result = MagicMock()
+        mock_conda_result.stdout = "C:\\conda\\envs\\other\\python.exe\n"
+        mock_conda_result.stderr = ""
+        with (
+            patch("sys.argv", ["gencmd.py", "--update", str(sample_cmd_file_with_env), "-n", "other"]),
+            patch("subprocess.run", return_value=mock_conda_result) as mock_run,
+            patch("os.path.isfile", return_value=True),
+        ):
+            main()
+        content = sample_cmd_file_with_env.read_text(encoding="utf-8")
+        assert ":: env  : other" in content
+
+    def test_create_mode_env_comment_defaults_to_default(self, tmp_path, sample_script_file):
+        from gencmd import main
+        with (
+            patch("sys.argv", ["gencmd.py", str(sample_script_file), str(tmp_path)]),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout="usage: script\n", returncode=0)
+            main()
+        content = (tmp_path / "myscript.cmd").read_text(encoding="utf-8")
+        assert ":: env  : default" in content
