@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from unittest.mock import patch, MagicMock, PropertyMock
 import pytest
 
@@ -89,7 +90,7 @@ class TestShowPreview:
         mock_print.assert_any_call("Preview error: something went wrong", file=sys.stderr)
 
 
-class TestGetUserEditedCommand:
+class TestGetUserEditedCommandKeepPreview:
     def test_with_keep_preview_shows_preview_and_prompt(self):
         with (
             patch("builtins.input", return_value=""),
@@ -223,3 +224,16 @@ class TestMain:
         ):
             cmdfzf.main()
         mock_exec.assert_not_called()
+
+
+class TestMainGuard:
+    def test_main_guard_runs_main(self):
+        src = Path(__file__).resolve().parent.parent / "src" / "cmdfzf.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        with (
+            patch("sys.argv", ["cmdfzf.py", "--cmddir", str(Path(__file__).parent)]),
+            patch("builtins.input", return_value=""),
+            pytest.raises(SystemExit) as exc,
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})
+        assert exc.value.code == 1

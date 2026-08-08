@@ -219,3 +219,17 @@ class TestMain:
         assert "foo" in output
         assert "foobar" in output
         assert "other" not in output
+
+
+class TestMainGuard:
+    def test_main_guard_runs_main(self, tmp_path):
+        (tmp_path / "foo.cmd").write_text("@echo off\n", encoding="utf-8")
+        src = Path(__file__).resolve().parent.parent / "src" / "cmdlist.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        buf = []
+        with (
+            patch("sys.argv", ["cmdlist.py", "--cmddir", str(tmp_path)]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})
+        assert any("foo" in line for line in buf)

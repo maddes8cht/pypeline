@@ -236,3 +236,20 @@ class TestMain:
         printed = " ".join(str(c) for c in mock_print.call_args_list)
         assert "BRANCH STATUS" not in printed
         assert "HIDDEN" not in printed
+
+
+class TestMainGuard:
+    def test_main_guard_runs_main(self):
+        import subprocess
+        src = Path(__file__).resolve().parent.parent / "src" / "check-git.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        with (
+            patch("sys.argv", ["check-git.py", "--no-status"]),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch("builtins.print"),
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})
+        assert mock_run.call_count >= 2  # fetch + status were attempted through real main()

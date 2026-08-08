@@ -1,4 +1,7 @@
 import re
+import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pytest
@@ -814,3 +817,326 @@ class TestMainFullFlow:
         output = "\n".join(buf)
         assert "Built-in placeholders" in output
         assert "sidebar" in output
+
+class TestGalleryTableTargetRow:
+    def test_table_row_links_preview_to_target_when_image_video_pair(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "clip.jpg").write_text("fake")
+        (media_dir / "clip.mp4").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 2}, media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
+)
+        assert "[![clip.jpg]" in result
+        assert "clip.mp4)" in result
+        assert "|" in result
+
+
+class TestListPlaceholdersReservedAndError:
+    def test_reserved_template_names_skipped_so_none_defined(self, tmp_path):
+        from markcms import list_placeholders
+        config = tmp_path / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "templates:\n"
+            "  - header: my_header.md\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_placeholders(tmp_path)
+        output = "\n".join(buf)
+        assert "my_header" not in output
+        assert "none defined" in output
+        assert "header" in output
+
+    def test_config_load_failure_is_swallowed(self, tmp_path):
+        from markcms import list_placeholders
+        config = tmp_path / "_config.yml"
+        config.write_text("\tkey: value\n", encoding="utf-8")
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_placeholders(tmp_path)
+        output = "\n".join(buf)
+        assert "none (no _config.yml loaded)" in output
+
+
+class TestMainVerboseAndPaths:
+    def test_verbose_flag_enables_detail_logging(self, tmp_path):
+        from markcms import main, verbose
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "docs:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        try:
+            with patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--dry-run", "--verbose"]):
+                main()
+        finally:
+            verbose.off()
+
+    def test_media_previews_warning_and_verbose_mapping(self, tmp_path, capsys):
+        from markcms import main, verbose
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "media_previews:\n"
+            "  mp4: video-icon.png\n"
+            "docs:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        try:
+            with patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--verbose"]):
+                main()
+        finally:
+            verbose.off()
+        out = capsys.readouterr().out
+        assert "template_media_dir not found" in out
+        assert "mp4 → video-icon.png" in out
+
+    def test_default_config_loaded_from_cwd(self, tmp_path, monkeypatch):
+        from markcms import main
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (tmp_path / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        (tmp_path / "_config.yml").write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "docs:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        buf = []
+        monkeypatch.chdir(tmp_path)
+        with patch("sys.argv", ["markcms.py", "--dry-run"]):
+            with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+                main()
+        output = "\n".join(buf)
+        assert "index.md" in output
+
+    def test_invalid_template_entry_raises_value_error(self, tmp_path):
+        from markcms import main
+        config = tmp_path / "_config.yml"
+        config.write_text(
+            "docs:\n  - title: Home\n    file: index.md\n"
+            "templates:\n  - just_a_string.md\n",
+            encoding="utf-8"
+        )
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config)]),
+            pytest.raises(ValueError, match="Invalid template entry"),
+        ):
+            main()
+
+    def test_external_link_without_file_skipped_without_warning(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "docs:\n"
+            "  - title: Home\n    file: index.md\n"
+            "  - title: GitHub\n    type: link\n    link: https://github.com\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--dry-run"]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+):
+            main()
+        output = "\n".join(buf)
+        assert "Missing 'file'" not in output
+        assert "warning" not in output
+        assert "Dry-run complete" in output
+
+    def test_missing_file_in_single_item_config_warns_and_completes(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "template: default.md\n"
+            "docs:\n  - title: Broken Item\n",
+            encoding="utf-8"
+        )
+        (config_dir / "templates" / "default.md").write_text(
+            "{menu}\n{content}\n", encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir), "--dry-run"]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+):
+            main()
+        output = "\n".join(buf)
+        assert "Missing 'file' in item: Broken Item" in output
+        assert "1 warning" in output
+
+    def test_sitemap_item_generates_sitemap_content(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "template: default.md\n"
+            "docs:\n"
+            "  - title: Home\n    file: index.md\n"
+            "  - title: Map\n    file: map.md\n    type: sitemap\n",
+            encoding="utf-8"
+        )
+        (config_dir / "templates" / "default.md").write_text(
+            "{content}\n", encoding="utf-8"
+        )
+        with patch("sys.argv", ["markcms.py", "--config", str(config_dir)]):
+            main()
+        content = (config_dir / "out" / "map.md").read_text(encoding="utf-8")
+        assert "- **Map**" in content
+        assert "- [Home](index.md)" in content \
+            or "{menu}" in content or "- [Map](map.md)" in content
+
+
+class TestDummyDebugFallback:
+    def test_fallback_when_debug_module_unavailable(self):
+        import importlib
+        import sys
+        import markcms as markcms_mod
+        with patch.dict(sys.modules, {"debug": None}):
+            reloaded = importlib.reload(markcms_mod)
+        try:
+            assert type(reloaded.debug).__name__ == "DummyDebug"
+            assert type(reloaded.verbose).__name__ == "DummyDebug"
+            reloaded.debug.print("x")
+            reloaded.debug.on()
+            reloaded.verbose.print("y")
+        finally:
+            importlib.reload(markcms_mod)
+
+
+class TestNonTimestampGlobalPlaceholder:
+    def test_non_timestamp_global_placeholder_replaced_with_empty(self, tmp_path):
+        import markcms as markcms_mod
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        (config_dir / "templates").mkdir()
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "template: default.md\n"
+            "docs:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        (config_dir / "templates" / "default.md").write_text(
+            "before {builder} after\n", encoding="utf-8"
+        )
+        expanded = set(markcms_mod.GLOBAL_PLACEHOLDERS) | {"builder"}
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir)]),
+            patch.object(markcms_mod, "GLOBAL_PLACEHOLDERS", expanded),
+        ):
+            main()
+        content = (config_dir / "out" / "index.md").read_text(encoding="utf-8")
+        assert "before  after" in content
+        assert "{builder}" not in content
+
+
+class TestCliEntryGuard:
+    SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+
+    def _run_cli(self, script_name, *args):
+        env = dict(os.environ, PYTHONPATH=str(self.SRC_DIR), PYTHONDONTWRITEBYTECODE="1")
+        return subprocess.run(
+            [sys.executable, str(self.SRC_DIR / script_name), *args],
+            capture_output=True, text=True, env=env, timeout=60,
+        )
+
+    def test_tab_config_exits_with_clean_error(self, tmp_path):
+        bad = tmp_path / "bad.yml"
+        bad.write_text("\tkey: value\n", encoding="utf-8")
+        result = self._run_cli("markcms.py", "--config", str(bad))
+        assert result.returncode == 1
+        assert "Invalid YAML" in result.stderr
+
+    def test_other_value_error_propagates(self, tmp_path):
+        cfg = tmp_path / "_config.yml"
+        cfg.write_text(
+            "docs:\n  - title: Home\n    file: index.md\n"
+            "nav:\n  - title: About\n    file: about.md\n",
+            encoding="utf-8"
+        )
+        result = self._run_cli("markcms.py", "--config", str(cfg))
+        assert result.returncode == 1
+        assert "ValueError" in result.stderr
+
+    def test_main_guard_handles_invalid_yaml_in_process(self, tmp_path):
+        bad = tmp_path / "bad.yml"
+        bad.write_text("\tkey: value\n", encoding="utf-8")
+        src = Path(__file__).resolve().parent.parent / "src" / "markcms.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(bad)]),
+            pytest.raises(SystemExit) as exc,
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})
+        assert exc.value.code == 1
+
+    def test_main_guard_re_raises_other_value_error(self, tmp_path):
+        cfg = tmp_path / "_config.yml"
+        cfg.write_text(
+            "docs:\n  - title: Home\n    file: index.md\n"
+            "nav:\n  - title: About\n    file: about.md\n",
+            encoding="utf-8"
+        )
+        src = Path(__file__).resolve().parent.parent / "src" / "markcms.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(cfg)]),
+            pytest.raises(ValueError, match="both 'docs' and 'nav'"),
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})

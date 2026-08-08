@@ -182,6 +182,26 @@ class TestGetIssueDetails:
         assert issue_data["state"] == "open"
         assert len(comments) == 1
 
+    def test_explicit_repo_skips_repo_view_subprocess(self):
+        mock_issue = MagicMock(returncode=0, stdout=json.dumps(SAMPLE_ISSUE_DETAIL))
+        mock_comments = MagicMock(returncode=0, stdout=json.dumps(SAMPLE_COMMENTS))
+        with (
+            patch("subprocess.run", side_effect=[mock_issue, mock_comments]) as mock_run,
+        ):
+            issue_data, comments = get_issue_details(1, repo="user/repo", verbose=False)
+        assert issue_data["state"] == "open"
+        cmd_list = [call.args[0] for call in mock_run.call_args_list]
+        assert cmd_list == [
+            ["gh", "api", "/repos/user/repo/issues/1"],
+            ["gh", "api", "/repos/user/repo/issues/1/comments"],
+        ]
+
+    def test_explicit_repo_failure_path_returns_none(self):
+        with patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="gone")):
+            issue_data, comments = get_issue_details(1, repo="user/repo")
+        assert issue_data is None
+        assert comments is None
+
     def test_repo_view_failure(self):
         with patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="no repo")):
             issue_data, comments = get_issue_details(1, verbose=False)
@@ -511,9 +531,43 @@ class TestMain:
         assert "Writing 6 issues to" in calls
         assert out.exists()
 
+    def _exec_as_main(self, argv, subprocess_effect):
+        code = compile(
+            MODULE_PATH.read_text(encoding="utf-8"),
+            str(MODULE_PATH),
+            "exec",
+        )
+        with (
+            patch("sys.argv", argv),
+            patch("subprocess.run", side_effect=subprocess_effect) as mock_run,
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(MODULE_PATH)})
+        return mock_run
+
     def test_keyboard_interrupt_handler_exits_130(self):
-        source = MODULE_PATH.read_text(encoding="utf-8")
-        patched = source.replace("def main():", "def main():\n    raise KeyboardInterrupt", 1)
-        with pytest.raises(SystemExit) as exc:
-            exec(compile(patched, "generate_issue_md_cli", "exec"), {"__name__": "__main__", "__file__": str(MODULE_PATH)})
+        with (
+            patch("builtins.print") as mock_print,
+            pytest.raises(SystemExit) as exc,
+        ):
+            self._exec_as_main(["generate-issue-md.py"], KeyboardInterrupt)
         assert exc.value.code == 130
+        assert any("Operation cancelled by user." in str(c) for c in mock_print.call_args_list)
+
+    def test_main_guard_keyboard_interrupt_exits_130(self):
+        with pytest.raises(SystemExit) as exc:
+            self._exec_as_main(["generate-issue-md.py"], KeyboardInterrupt)
+        assert exc.value.code == 130
+
+    def test_main_guard_runs_main_and_exits(self):
+        mock_result = MagicMock(returncode=0, stdout="[]")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            with patch("sys.argv", ["generate-issue-md.py", "--dry-run"]):
+                with pytest.raises(SystemExit) as exc:
+                    code = compile(
+                        MODULE_PATH.read_text(encoding="utf-8"),
+                        str(MODULE_PATH),
+                        "exec",
+                    )
+                    exec(code, {"__name__": "__main__", "__file__": str(MODULE_PATH)})
+        assert exc.value.code == 0
+        assert any(c.args[0][0] == "gh" for c in mock_run.call_args_list)

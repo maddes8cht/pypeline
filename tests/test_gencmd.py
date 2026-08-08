@@ -362,3 +362,17 @@ class TestMainDialogsAndEnv:
             main()
         content = (tmp_path / "myscript.cmd").read_text(encoding="utf-8")
         assert ":: env  : default" in content
+
+
+class TestMainGuard:
+    def test_main_guard_runs_main(self, tmp_path, sample_script_file):
+        src = Path(__file__).resolve().parent.parent / "src" / "gencmd.py"
+        code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+        with (
+            patch("sys.argv", ["gencmd.py", str(sample_script_file), str(tmp_path)]),
+            patch("subprocess.run",
+                  return_value=MagicMock(stdout="usage: script\n", returncode=0)) as mock_run,
+        ):
+            exec(code, {"__name__": "__main__", "__file__": str(src)})
+        assert (tmp_path / "myscript.cmd").exists()
+        assert mock_run.called
