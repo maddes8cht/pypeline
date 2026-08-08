@@ -370,6 +370,15 @@ class TestListAssignees:
         assert any("alice (Alice)" in c for c in calls)
         assert any("bob (Bob Smith)" in c for c in calls)
 
+    def test_assignees_without_login_are_skipped(self):
+        issues = [
+            {"number": 1, "assignees": [{"name": "ghost", "login": None}]}
+        ]
+        with patch("builtins.print") as mock_print, pytest.raises(SystemExit) as exc:
+            list_assignees(issues)
+        assert exc.value.code == 0
+        mock_print.assert_not_called()
+
 
 class TestListMilestones:
     def test_empty_issues_prints_nothing(self):

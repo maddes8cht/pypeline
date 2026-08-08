@@ -1049,6 +1049,8 @@ class TestDummyDebugFallback:
             reloaded.debug.print("x")
             reloaded.debug.on()
             reloaded.verbose.print("y")
+            reloaded.debug.off()
+            reloaded.verbose.off()
         finally:
             importlib.reload(markcms_mod)
 
@@ -1140,3 +1142,156 @@ class TestCliEntryGuard:
             pytest.raises(ValueError, match="both 'docs' and 'nav'"),
         ):
             exec(code, {"__name__": "__main__", "__file__": str(src)})
+
+
+class TestEdgeBranches:
+    def test_tab_error_without_problem_mark(self, tmp_path):
+        """Bug-hunt: a YAML tab error without a problem_mark must still be explained."""
+        import yaml
+        from markcms import load_config
+        f = tmp_path / "_config.yml"
+        f.write_text("x", encoding="utf-8")
+        err = yaml.YAMLError("found character '\\t' that cannot start any token")
+        with (
+            patch("builtins.open", mock_open(read_data="x")),
+            patch("markcms.yaml.safe_load", side_effect=err),
+        ):
+            with pytest.raises(ValueError) as exc:
+                load_config(f)
+        assert "TAB" in str(exc.value)
+        assert "near line" not in str(exc.value)
+
+    def test_list_placeholders_config_without_templates(self, tmp_path):
+        from markcms import list_placeholders
+        (tmp_path / "_config.yml").write_text("docs_dir: docs\n", encoding="utf-8")
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_placeholders(tmp_path)
+        output = "\n".join(buf)
+        assert "none (no _config.yml loaded)" in output
+
+    def test_list_placeholders_non_dict_templates_entry(self, tmp_path):
+        from markcms import list_placeholders
+        (tmp_path / "_config.yml").write_text(
+            "templates:\n  - just_a_string.md\n", encoding="utf-8"
+        )
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_placeholders(tmp_path)
+        output = "\n".join(buf)
+        assert "just_a_string" not in output
+        assert "none defined" in output
+
+    def test_gallery_subdirectory_entry_is_skipped(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        (media_dir / "subdir").mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        result = generate_gallery_content(
+            {"columns": 1}, media_dir, tmp_path, {}, tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert "photo.jpg" in result
+        assert "subdir" not in result
+
+    def test_gallery_extension_not_in_preview_map_is_skipped(self, tmp_path):
+        from markcms import generate_gallery_content
+        media_dir = tmp_path / "media"
+        media_dir.mkdir()
+        template_media = tmp_path / "media-icons"
+        template_media.mkdir()
+        (template_media / "video_thumb.jpg").write_text("fake")
+        (media_dir / "video.mp4").write_text("fake")
+        (media_dir / "notes.txt").write_text("unmapped extension")
+        preview_map = {"mp4": "video_thumb.jpg"}
+        result = generate_gallery_content(
+            {"columns": 1}, media_dir, template_media, preview_map,
+            tmp_path, tmp_path / "out" / "index.md",
+        )
+        assert "video_thumb.jpg" in result
+        assert "notes" not in result
+        assert "video.mp4" in result
+
+    def test_media_previews_with_existing_dir_no_warning(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        templates_dir = config_dir / "templates"
+        templates_dir.mkdir()
+        icons_dir = templates_dir / "media-icons"
+        icons_dir.mkdir()
+        (icons_dir / "video-icon.png").write_text("fake")
+        (docs_dir / "index.md").write_text("# Home\n", encoding="utf-8")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "media_previews:\n"
+            "  mp4: video-icon.png\n"
+            "docs:\n  - title: Home\n    file: index.md\n",
+            encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir)]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            main()
+        output = "\n".join(buf)
+        assert "template_media_dir not found" not in output
+
+    def test_gallery_item_missing_source_no_source_warning(self, tmp_path):
+        from markcms import main
+        config_dir = tmp_path / "site"
+        config_dir.mkdir()
+        docs_dir = config_dir / "docs"
+        docs_dir.mkdir()
+        templates_dir = config_dir / "templates"
+        templates_dir.mkdir()
+        media_dir = config_dir / "media"
+        media_dir.mkdir()
+        (media_dir / "photo.jpg").write_text("fake")
+        config = config_dir / "_config.yml"
+        config.write_text(
+            "docs_dir: docs\n"
+            "templates_dir: templates\n"
+            "out_dir: out\n"
+            "media_dir: media\n"
+            "template: default.md\n"
+            "docs:\n"
+            "  - title: Gallery Page\n"
+            "    file: gallery.md\n"
+            "    type: gallery\n"
+            "    columns: 1\n",
+            encoding="utf-8"
+        )
+        (config_dir / "templates" / "default.md").write_text(
+            "{content}\n", encoding="utf-8"
+        )
+        buf = []
+        with (
+            patch("sys.argv", ["markcms.py", "--config", str(config_dir)]),
+            patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))),
+        ):
+            main()
+        output = "\n".join(buf)
+        assert "MISSING SOURCE" not in output
+        content = (config_dir / "out" / "gallery.md").read_text(encoding="utf-8")
+        assert "# Gallery Page" in content
+        assert "photo.jpg" in content
+
+    def test_reload_on_non_windows_skips_reconfigure(self, monkeypatch):
+        """Covers the else-branch of the sys.platform == 'win32' guard at import."""
+        import importlib
+        import sys as sysmod
+        import markcms as markcms_mod
+        monkeypatch.setattr(sysmod, "platform", "linux")
+        try:
+            reloaded = importlib.reload(markcms_mod)
+            assert reloaded is not None
+        finally:
+            monkeypatch.setattr(sysmod, "platform", "win32")
+            importlib.reload(markcms_mod)

@@ -116,6 +116,16 @@ class TestListCmdFiles:
         assert "" in buf
         assert any("second without space" in b for b in buf)
 
+    def test_comment_only_file_exhausts_loop_naturally(self, tmp_path):
+        from cmdlist import list_cmd_files
+        content = ":: first line\n:: second line\n"
+        (tmp_path / "only.cmd").write_text(content, encoding="utf-8")
+        buf = []
+        with patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            list_cmd_files(str(tmp_path))
+        assert any("first line" in b for b in buf)
+        assert any("second line" in b for b in buf)
+
     def test_file_read_error_prints_message(self, tmp_path):
         from cmdlist import list_cmd_files
         import builtins
